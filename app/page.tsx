@@ -6,14 +6,14 @@ type Stage = "home" | "create" | "room" | "swipe" | "constraints" | "ranking" | 
 type Choice = "no" | "okay" | "like";
 
 const swipeCards = [
-  { id: "kart", type: "刺激体验", name: "极速卡丁车", meta: "¥178 · 室内 · 2小时", emoji: "🏎️", color: "orange" },
-  { id: "museum", type: "文化艺术", name: "西岸美术馆", meta: "¥100 · 室内 · 2.5小时", emoji: "◐", color: "blue" },
-  { id: "camp", type: "户外放松", name: "滨江轻露营", meta: "¥126 · 户外 · 3小时", emoji: "⛺", color: "green" },
-  { id: "game", type: "轻松社交", name: "META 桌游社", meta: "¥88 · 室内 · 3小时", emoji: "♟", color: "pink" },
-  { id: "escape", type: "沉浸解谜", name: "谜盒沉浸剧场", meta: "¥168 · 室内 · 2小时", emoji: "⌁", color: "purple" },
-  { id: "pottery", type: "手作体验", name: "泥作陶艺工坊", meta: "¥158 · 室内 · 2小时", emoji: "◡", color: "sand" },
-  { id: "brunch", type: "轻食聚餐", name: "梧桐树下 Brunch", meta: "¥138 · 半室外 · 2小时", emoji: "☕", color: "yellow" },
-  { id: "climb", type: "运动挑战", name: "岩时攀岩馆", meta: "¥198 · 室内 · 2.5小时", emoji: "↗", color: "cyan" },
+  { id: "kart", type: "刺激体验", name: "极速卡丁车", meta: "¥178 · 室内 · 2小时", emoji: "KART", color: "orange" },
+  { id: "museum", type: "文化艺术", name: "西岸美术馆", meta: "¥100 · 室内 · 2.5小时", emoji: "ART", color: "blue" },
+  { id: "camp", type: "户外放松", name: "滨江轻露营", meta: "¥126 · 户外 · 3小时", emoji: "CAMP", color: "green" },
+  { id: "game", type: "轻松社交", name: "META 桌游社", meta: "¥88 · 室内 · 3小时", emoji: "PLAY", color: "pink" },
+  { id: "escape", type: "沉浸解谜", name: "谜盒沉浸剧场", meta: "¥168 · 室内 · 2小时", emoji: "MYST", color: "purple" },
+  { id: "pottery", type: "手作体验", name: "泥作陶艺工坊", meta: "¥158 · 室内 · 2小时", emoji: "CLAY", color: "sand" },
+  { id: "brunch", type: "轻食聚餐", name: "梧桐树下 Brunch", meta: "¥138 · 半室外 · 2小时", emoji: "EAT", color: "yellow" },
+  { id: "climb", type: "运动挑战", name: "岩时攀岩馆", meta: "¥198 · 室内 · 2.5小时", emoji: "UP", color: "cyan" },
 ];
 
 const stageOrder: Stage[] = ["create", "room", "swipe", "constraints", "ranking", "results", "locked"];
@@ -149,24 +149,27 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
   return <>
     <section className="hero">
       <div className="hero-copy">
-        <div className="eyebrow"><i /> GROUP DECISION OS</div>
-        <h1>今晚去哪，<br />不用再聊 <em>99+</em> 条</h1>
-        <p>每个人私密滑 8 张卡，AI 替你们找出没有人受委屈、而且真的能去的共同方案。</p>
-        <div className="hero-actions"><button className="primary-button" onClick={onStart}>开始 3 分钟 Demo <span>↗</span></button><span>免下载 · 免登录</span></div>
+        <div className="eyebrow"><i /> AI GROUP DECISION</div>
+        <h1>把群聊里的<br /><em>“都行”</em><br />变成现在就出发</h1>
+        <p>朋友各自私密表达偏好，凑局负责找到没有人被牺牲、而且真实可执行的共同答案。</p>
+        <div className="hero-actions"><button className="primary-button" onClick={onStart}>体验完整决策 <span>→</span></button><span><b>3 分钟</b> · 免下载 · 免登录</span></div>
+        <div className="hero-proof"><div className="proof-faces"><i>N</i><i>L</i><i>M</i><i>J</i></div><span><b>4 人的底线都被照顾</b><small>不是多数票，是公平共识</small></span></div>
       </div>
       <div className="decision-card" aria-label="凑局共识房间预览">
-        <div className="card-topline"><span>周六去哪玩</span><b>3/4 已完成</b></div>
+        <div className="floating-chat chat-one"><b>都行啊</b><small>但别太远 🙈</small></div>
+        <div className="floating-chat chat-two"><b>你们定</b><small>我 8 点前得走</small></div>
+        <div className="card-topline"><span><i /> 周六去哪玩</span><b>LIVE · 3/4</b></div>
         <div className="people-row">
           {[["N", "Nina", true], ["L", "Leo", true], ["M", "Mia", true], ["J", "Jay", false]].map(([letter, name, done]) => (
             <div className="person" key={String(name)}><div className={`avatar ${done ? "done" : "wait"}`}>{letter}{done && <span>✓</span>}</div><small>{name}</small></div>
           ))}
         </div>
-        <div className="converge"><div className="thread t1" /><div className="thread t2" /><div className="thread t3" /><div className="thread t4" /><span className="ai-node">AI</span></div>
-        <div className="place-result"><div className="result-visual"><span>推荐</span><b>🏎️</b></div><div><small>共同可接受方案</small><h3>极速卡丁车馆</h3><p>16:00 · ¥178/人 · 室内</p></div><strong>88<small>GROUP FIT</small></strong></div>
-        <div className="fit-line"><i /><span>满足 4/4 人的全部底线</span></div>
+        <div className="converge"><div className="thread t1" /><div className="thread t2" /><div className="thread t3" /><div className="thread t4" /><span className="ai-node">✦</span></div>
+        <div className="place-result"><div className="result-visual"><span>TOP 1</span><b>GO</b></div><div><small>共同可接受方案</small><h3>极速卡丁车馆</h3><p>周六 17:00 · ¥178/人</p></div><strong>88<small>GROUP FIT</small></strong></div>
+        <div className="fit-line"><i>✓</i><span><b>全部底线满足</b><small>最低个人匹配仍有 76</small></span></div>
       </div>
     </section>
-    <section className="how-strip"><div><b>01</b><span>发一个链接</span><small>让朋友免登录加入</small></div><div className="arrow">→</div><div><b>02</b><span>私密滑 8 张</span><small>真实表达偏好与底线</small></div><div className="arrow">→</div><div><b>03</b><span>锁定共同方案</span><small>导航、日历一步到位</small></div></section>
+    <section className="how-strip"><div><b>01</b><span>把链接扔进群</span><small>好友打开就能参与</small></div><div className="arrow">→</div><div><b>02</b><span>每人私密滑 8 张</span><small>不必公开预算和底线</small></div><div className="arrow">→</div><div><b>03</b><span>一起锁定方案</span><small>直接导航、加入日历</small></div></section>
   </>;
 }
 
@@ -262,7 +265,7 @@ function RankingScreen({ step }: { step: number }) {
 }
 
 function ResultsScreen({ vetoed, decision, onDecision, onVeto, onLock }: { vetoed: boolean; decision: "" | "accept" | "okay"; onDecision: (d: "accept" | "okay") => void; onVeto: () => void; onLock: () => void }) {
-  const main = vetoed ? { name: "谜盒沉浸剧场", score: 86, emoji: "⌁", price: "¥168/人", travel: "最远 32 分钟", time: "17:15 到店", why: "满足所有人的时间和预算底线；新增“安静环境”约束后仍保持较高兴趣交集。", color: "purple" } : { name: "极速卡丁车馆", score: 88, emoji: "🏎️", price: "¥178/人", travel: "最远 38 分钟", time: "17:00 到店", why: "满足全部时间和预算底线；四人最低个人匹配仍为 76；室内不受降雨影响。", color: "orange" };
+  const main = vetoed ? { name: "谜盒沉浸剧场", score: 86, emoji: "MYST", price: "¥168/人", travel: "最远 32 分钟", time: "17:15 到店", why: "满足所有人的时间和预算底线；新增“安静环境”约束后仍保持较高兴趣交集。", color: "purple" } : { name: "极速卡丁车馆", score: 88, emoji: "KART", price: "¥178/人", travel: "最远 38 分钟", time: "17:00 到店", why: "满足全部时间和预算底线；四人最低个人匹配仍为 76；室内不受降雨影响。", color: "orange" };
   return <section className="flow-page results-page"><div className="result-heading"><div><span>✦ 找到共同可接受方案</span><h1>{vetoed ? "已根据新底线重排" : "你们的交集，比想象中大"}</h1><p>{vetoed ? "“太吵”已作为本次强约束，其他人的私人输入仍未公开。" : "40 个真实候选经过硬约束过滤和公平共识排序。"}</p></div><div className="verified-badge"><i>✓</i><span>全部硬约束<small>已核验</small></span></div></div>
     <div className="result-layout"><article className="winner-card"><div className={`winner-art ${main.color}`}><div className="rank-ribbon">TOP 1 · 推荐</div><b>{main.emoji}</b><span>上海 · 静安区</span></div><div className="winner-body"><div className="winner-title"><div><span>共同可接受方案</span><h2>{main.name}</h2></div><div className="group-score"><strong>{main.score}</strong><span>GROUP FIT<small>会话内公平分</small></span></div></div><div className="facts-row"><span><i>◷</i><b>{main.time}</b><small>周六 · 约 2 小时</small></span><span><i>¥</i><b>{main.price}</b><small>低于全员预算上限</small></span><span><i>⌖</i><b>{main.travel}</b><small>通勤差异仅 9 分钟</small></span></div><div className="why-box"><span>为什么是它？</span><p>{main.why}</p></div><div className="checks"><span><i>✓</i>时间满足 4/4</span><span><i>✓</i>预算满足 4/4</span><span><i>✓</i>最低匹配 {vetoed ? "74" : "76"}</span><span><i>✓</i>关键事实已更新</span></div></div></article>
       <aside className="response-panel"><div className="response-head"><span>全员确认</span><b>{decision ? "4/4" : "3/4"}</b></div><div className="mini-people">{["N","L","M","J"].map((p,i) => <div key={p} className={i < 3 || decision ? "accepted" : "waiting"}><span>{p}{(i < 3 || decision) && <i>✓</i>}</span><small>{i < 3 ? "已接受" : decision ? (decision === "accept" ? "已接受" : "可接受") : "等待你"}</small></div>)}</div>{!decision ? <><p>你的选择不会展示原因，只有结果状态对小组可见。</p><button className="accept-button" onClick={() => onDecision("accept")}>✓ 接受这个方案</button><button className="okay-button" onClick={() => onDecision("okay")}>可以接受</button><button className="veto-button" onClick={onVeto}>否决并说明原因</button></> : <><div className="all-accepted"><span>✓</span><b>全员已确认</b><small>没有人被落下，可以锁定了</small></div><button className="lock-button" onClick={onLock}>锁定方案 <span>→</span></button></>}</aside>
