@@ -4,6 +4,15 @@
 
 [在线体验 Interactive Demo](https://couju-demo.quintinwei1314.chatgpt.site/) · 2–6 人本地聚餐 / 活动决策 · 移动端与桌面端均可体验
 
+> [!IMPORTANT]
+> 当前项目仅用于作品集与 Demo 展示，尚未接入任何真实 API Key。候选数据、AI 偏好抽取与推荐流程均为本地预置或模拟结果，不代表已接入实时商户、地图或线上大模型服务。
+
+## 演示视频
+
+[![点击观看凑局产品演示视频](docs/assets/couju-demo-poster.png)](https://github.com/QuintinWei/couju-group-decision-os/raw/main/docs/assets/couju-demo.mp4)
+
+[点击播放 / 下载 45 秒产品演示视频](https://github.com/QuintinWei/couju-group-decision-os/raw/main/docs/assets/couju-demo.mp4)
+
 ## 作品简介
 
 凑局是一款 AI 群体决策产品。它不是再给一个人生成一份推荐清单，而是帮助 2–6 个人在预算、时间、距离、忌口和兴趣不同的情况下，快速找到一个“所有硬约束都满足、没有人明显被牺牲”的共同方案。
