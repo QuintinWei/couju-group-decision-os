@@ -9,9 +9,9 @@
 
 ## 演示视频
 
-[![点击观看凑局产品演示视频](docs/assets/couju-demo-poster.png)](https://github.com/QuintinWei/couju-group-decision-os/raw/main/docs/assets/couju-demo.mp4)
+https://github.com/user-attachments/assets/11dc9878-fec1-43cd-8dd3-013788ed7aee
 
-[点击播放 / 下载 45 秒产品演示视频](https://github.com/QuintinWei/couju-group-decision-os/raw/main/docs/assets/couju-demo.mp4)
+> 点击播放器即可在线观看 45 秒完整产品演示。
 
 ## 作品简介
 
