@@ -9,7 +9,7 @@
 
 ## 演示视频
 
-https://github.com/user-attachments/assets/11dc9878-fec1-43cd-8dd3-013788ed7aee
+https://github.com/user-attachments/assets/009544ca-8dd0-47e0-9569-3797646de0a3
 
 > 点击播放器即可在线观看 45 秒完整产品演示。
 
