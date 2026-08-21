@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: process.env.DEEPSEEK_MODEL || "deepseek-reasoner",
+        model: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
         messages: [
           { role: "system", content: "你是凑局的偏好字段抽取器。只输出 JSON，不推荐地点，不补造用户未说过的事实。" },
           { role: "user", content: prompt },
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     const payload = await response.json() as { choices?: Array<{ finish_reason?: string; message?: { content?: string } }>; model?: string };
     const content = payload.choices?.[0]?.message?.content;
     if (!content || payload.choices?.[0]?.finish_reason === "length") throw new Error("DeepSeek returned empty or truncated JSON");
-    const extraction = normalizeExtraction(parseJsonObject(content), payload.model || process.env.DEEPSEEK_MODEL || "deepseek-reasoner");
+    const extraction = normalizeExtraction(parseJsonObject(content), payload.model || process.env.DEEPSEEK_MODEL || "deepseek-v4-flash");
     return Response.json({ extraction });
   } catch (error) {
     console.warn("[preferences] AI extraction fallback:", error instanceof Error ? error.message : "unknown error");
