@@ -29,20 +29,23 @@ export async function GET(request: Request) {
   const page = Math.min(5, Math.max(1, Number(url.searchParams.get("page")) || 1));
   const location = parseLocation(url.searchParams.get("location"));
   const commuteWindow = parseCommuteWindow(url.searchParams.get("commute"));
+  const commuteLimit = commuteLimitMinutes(commuteWindow);
   const searchRadius = commuteRadius(commuteWindow);
   const key = process.env.AMAP_WEB_SERVICE_KEY;
-  if (!key) return demoResponse(city, kind, interests, seed, focused, strategy, location, commuteWindow, "未配置高德 Web 服务 Key，当前展示带明确标识的演示候选。", 200);
+  if (!key) return demoResponse(city, kind, interests, seed, focused, strategy, location, commuteWindow, commuteLimit, "未配置高德 Web 服务 Key，当前展示带明确标识的演示候选。", 200);
 
   try {
     const resultSets = await Promise.all(interests.map((interest) => searchAmap({ key, city, kind, interest, location, radius: searchRadius, page })));
     const candidates = diversify(resultSets, city, kind, avoidTokens, excludedIds, location).slice(0, 12);
-    if (candidates.length < 4) throw new Error("Not enough usable POIs");
+    const commuteFiltered = commuteLimit === null ? candidates : candidates.filter((candidate) => candidate.estimatedTravelMinutes !== null && candidate.estimatedTravelMinutes <= commuteLimit);
+    const finalCandidates = commuteFiltered.length > 0 ? commuteFiltered : candidates;
+    if (finalCandidates.length < 4) throw new Error("Not enough usable POIs");
     return Response.json({
-      candidates,
-      meta: { mode: "live", label: focused ? "按想法探索" : strategy === "learn" ? "根据划卡换一批" : "随机发现", fetchedAt: new Date().toISOString(), city, kind, keywords: interests, avoid: avoidTokens, page, center: location, seed, focused, strategy, commuteWindow, disclaimer: commuteWindow === "全城探索" ? "候选从全城分类型召回；出发地只用于通勤估算。" : `候选按${commuteWindow}的近似范围召回，最终仍以成员通勤底线过滤。` },
+      candidates: finalCandidates,
+      meta: { mode: "live", label: focused ? "按想法探索" : strategy === "learn" ? "根据划卡换一批" : "随机发现", fetchedAt: new Date().toISOString(), city, kind, keywords: interests, avoid: avoidTokens, page, center: location, seed, focused, strategy, commuteWindow, disclaimer: commuteWindow === "全城探索" ? "候选从全城分类型召回；出发地只用于通勤估算。" : `候选尽量控制在${commuteWindow}内，最终仍以成员通勤底线过滤。` },
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
-    return demoResponse(city, kind, interests, seed, focused, strategy, location, commuteWindow, "高德地点服务暂时不可用，已切换为演示候选。", 200);
+    return demoResponse(city, kind, interests, seed, focused, strategy, location, commuteWindow, commuteLimit, "高德地点服务暂时不可用，已切换为演示候选。", 200);
   }
 }
 
@@ -149,10 +152,11 @@ function parseLocation(value: string | null) {
   return Number.isFinite(lng) && Number.isFinite(lat) && lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90 ? { lng, lat } : null;
 }
 
-function demoResponse(city: CityName, kind: DecisionKind, interests: string[], seed: string, focused: boolean, strategy: "explore" | "focused" | "learn", center: { lng: number; lat: number } | null, commuteWindow: string, disclaimer: string, status: number) {
+function demoResponse(city: CityName, kind: DecisionKind, interests: string[], seed: string, focused: boolean, strategy: "explore" | "focused" | "learn", center: { lng: number; lat: number } | null, commuteWindow: string, commuteLimit: number | null, disclaimer: string, status: number) {
   const matching = getDemoCandidates(city, kind).map((candidate) => ({ ...candidate, matchedInterest: candidate.type }));
-  const filtered = focused ? matching.filter((candidate) => interests.some((interest) => candidate.type.includes(interest) || interest.includes(candidate.type))) : matching;
-  const candidates = stableShuffle(focused && filtered.length > 0 ? filtered : matching, seed);
+  const focusedCandidates = focused ? matching.filter((candidate) => interests.some((interest) => candidate.type.includes(interest) || interest.includes(candidate.type))) : matching;
+  const commuteCandidates = commuteLimit === null ? focusedCandidates : focusedCandidates.filter((candidate) => candidate.estimatedTravelMinutes !== null && candidate.estimatedTravelMinutes <= commuteLimit);
+  const candidates = stableShuffle(commuteCandidates.length > 0 ? commuteCandidates : focusedCandidates, seed);
   return Response.json({
     candidates,
     meta: { mode: "demo", label: focused ? "按想法探索 · 演示" : strategy === "learn" ? "根据划卡换一批 · 演示" : "随机发现 · 演示", fetchedAt: "2026-08-21T00:00:00.000Z", city, kind, keywords: interests, page: 1, center, seed, focused, strategy, commuteWindow, disclaimer },
@@ -173,6 +177,13 @@ function stableShuffle<T>(values: readonly T[], seed: string) {
 
 function parseCommuteWindow(value: string | null) {
   return (["≤ 30 分钟", "≤ 45 分钟", "≤ 60 分钟"] as const).find((item) => item === value) || "全城探索";
+}
+
+function commuteLimitMinutes(value: string) {
+  if (value === "≤ 30 分钟") return 30;
+  if (value === "≤ 45 分钟") return 45;
+  if (value === "≤ 60 分钟") return 60;
+  return null;
 }
 
 function commuteRadius(value: string) {

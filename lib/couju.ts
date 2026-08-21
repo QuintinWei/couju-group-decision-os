@@ -203,20 +203,39 @@ function demo(
 export function getDemoCandidates(city: CityName, kind: DecisionKind): Candidate[] {
   const profile = CITY_PROFILES[city];
   const templates = kind === "dining" ? diningTemplates : activityTemplates;
-  return templates.map((item, index) => ({
-    ...item,
-    id: `${city}-${item.id}`,
-    city,
-    district: profile.districts[index % profile.districts.length],
-    address: `${profile.districts[index % profile.districts.length]} · 演示地址不用于到店`,
-    location: null,
-    estimatedTravelMinutes: item.travel,
-    source: {
-      mode: "demo",
-      label: "凑局演示候选库",
-      fetchedAt: "2026-08-21T00:00:00.000Z",
-    },
-  }));
+  return templates.map((item, index) => {
+    const location = demoLocation(city, `${kind}:${item.id}`, item.travel);
+    return {
+      ...item,
+      id: `${city}-${item.id}`,
+      city,
+      district: profile.districts[index % profile.districts.length],
+      address: `${profile.districts[index % profile.districts.length]} · 演示地址不用于到店`,
+      location,
+      estimatedTravelMinutes: estimateTravelMinutes(city, location),
+      source: {
+        mode: "demo",
+        label: "凑局演示候选库",
+        fetchedAt: "2026-08-21T00:00:00.000Z",
+      },
+    };
+  });
+}
+
+function demoLocation(city: CityName, seed: string, travelMinutes: number) {
+  const [centerLng, centerLat] = CITY_PROFILES[city].center;
+  const hash = hashString(`${city}:${seed}`);
+  const angle = (hash % 3600) / 3600 * Math.PI * 2;
+  const distanceKm = Math.max(0.8, (travelMinutes - 12) / 3.2);
+  const latOffset = distanceKm * Math.cos(angle) / 111;
+  const lngOffset = distanceKm * Math.sin(angle) / (111 * Math.cos(centerLat * Math.PI / 180));
+  return { lng: centerLng + lngOffset, lat: centerLat + latOffset };
+}
+
+function hashString(value: string) {
+  let hash = 2166136261;
+  for (const char of value) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+  return hash;
 }
 
 export function extractWithRules(note: string, kind: DecisionKind): PreferenceExtraction {

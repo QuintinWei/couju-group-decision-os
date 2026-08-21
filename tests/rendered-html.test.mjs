@@ -52,10 +52,12 @@ test("keeps provenance, DeepSeek extraction, and deterministic ranking in the pr
   assert.match(page, /type="time"/);
   assert.match(page, /rankCandidates/);
   assert.match(page, /规则降级/);
-  assert.match(page, /演示成员样本/);
+  assert.match(page, /手输地铁站或商圈也会参与通勤计算/);
+  assert.match(page, /探索模式 · 按通勤范围召回/);
+  assert.match(page, /通勤约/);
   assert.match(page, /text\/calendar/);
   assert.match(amap, /city: CityName \| null/);
-  assert.match(amap, /当前位置附近/);
+  assert.match(amap, /当前位置（估算）/);
   assert.match(locationRoute, /city: located\.city/);
   assert.match(css, /\.form-control/);
   assert.match(css, /\.photo-winner/);
@@ -108,7 +110,7 @@ test("activity discovery keeps categories diverse and supports scenic cards", as
 test("the UI exposes consent-based location, city sync, and feedback-driven refresh", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /navigator\.geolocation/);
-  assert.match(page, /手输地铁站也会真正参与通勤计算/);
+  assert.match(page, /手输地铁站或商圈也会参与通勤计算/);
   assert.match(page, /自动切换到/);
   assert.doesNotMatch(page, /划卡后，换一批会参考你的真实反馈/);
   assert.doesNotMatch(page, /活动不再混入普通景点/);
