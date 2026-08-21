@@ -83,6 +83,24 @@ test("all six cities keep a complete candidate flow", async () => {
   }
 });
 
+test("activity discovery spans real entertainment categories instead of attraction-only cards", async () => {
+  const first = await fetchFromApp("/api/candidates?city=%E4%B8%8A%E6%B5%B7&kind=activity&strategy=explore&seed=alpha");
+  const second = await fetchFromApp("/api/candidates?city=%E4%B8%8A%E6%B5%B7&kind=activity&strategy=explore&seed=beta");
+  const firstPayload = await first.json(); const secondPayload = await second.json();
+  const types = new Set(firstPayload.candidates.map((candidate) => candidate.type));
+  assert.ok(["头疗按摩", "攀岩", "电影", "陶艺泥塑", "KTV", "拼豆手作", "剧本杀", "麻将棋牌"].every((type) => types.has(type)));
+  assert.ok(firstPayload.candidates.every((candidate) => !/景区|景点|公园/.test(candidate.type + candidate.name)));
+  assert.notDeepEqual(firstPayload.candidates.map((candidate) => candidate.id), secondPayload.candidates.map((candidate) => candidate.id));
+});
+
+test("the UI exposes consent-based location and feedback-driven refresh", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /navigator\.geolocation/);
+  assert.match(page, /手输地铁站也会真正参与通勤计算/);
+  assert.match(page, /这批没感觉/);
+  assert.match(page, /strategy: "learn"/);
+});
+
 test("preference endpoint uses dynamic rule extraction when no DeepSeek key is configured", async () => {
   const response = await fetchFromApp("/api/preferences", {
     method: "POST",

@@ -15,7 +15,9 @@ export async function POST(request: Request) {
   try {
     const room = await getStoredRoom(roomCode);
     if (!room) return Response.json({ error: "没有找到这个房间" }, { status: 404 });
-    const originLocation = await geocodeOrigin(room.config.city, origin);
+    const supplied = validLocation(body.originLocation);
+    const originLocation = supplied || await geocodeOrigin(room.config.city, origin);
+    if (!originLocation) return Response.json({ error: `没有识别到“${origin}”，请填写完整地铁站 / 商圈名或使用系统定位` }, { status: 422 });
     const identity = await joinStoredRoom(roomCode, name, origin, originLocation);
     if (!identity) return Response.json({ error: "没有找到这个房间" }, { status: 404 });
     return Response.json({ identity }, { status: 201 });
@@ -58,4 +60,11 @@ export async function PATCH(request: Request) {
 
 function cleanText(value: unknown, max: number) {
   return typeof value === "string" ? value.trim().replace(/[<>]/g, "").slice(0, max) : "";
+}
+
+function validLocation(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const point = value as { lng?: unknown; lat?: unknown };
+  const lng = Number(point.lng); const lat = Number(point.lat);
+  return Number.isFinite(lng) && Number.isFinite(lat) && lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90 ? { lng, lat } : null;
 }

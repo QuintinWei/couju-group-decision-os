@@ -16,6 +16,13 @@ export const CITY_PROFILES = {
 export type CityName = keyof typeof CITY_PROFILES;
 export const SUPPORTED_CITIES = Object.keys(CITY_PROFILES) as CityName[];
 
+export const DINING_INTERESTS = ["本帮菜", "日料", "火锅", "烤肉", "粤菜", "西餐", "云南菜", "素食", "Brunch", "小酒馆"] as const;
+export const ACTIVITY_INTERESTS = ["头疗按摩", "攀岩", "电影", "陶艺泥塑", "KTV", "拼豆手作", "剧本杀", "麻将棋牌", "桌游", "密室逃脱", "保龄球", "羽毛球", "脱口秀", "展览"] as const;
+export const DEFAULT_INTERESTS: Record<DecisionKind, string[]> = {
+  dining: [...DINING_INTERESTS],
+  activity: [...ACTIVITY_INTERESTS],
+};
+
 export type RoomConfig = {
   kind: DecisionKind;
   city: CityName;
@@ -32,6 +39,7 @@ export type Candidate = {
   type: string;
   name: string;
   meta: string;
+  matchedInterest?: string;
   image: string;
   priceValue: number | null;
   priceLabel: string;
@@ -135,14 +143,14 @@ export type RankedCandidate = Candidate & {
 type DemoTemplate = Omit<Candidate, "city" | "district" | "address" | "source" | "location"> & { travel: number };
 
 const activityTemplates: DemoTemplate[] = [
-  demo("kart", "activity", "刺激体验", "极速卡丁车馆", "室内赛道 · 新手友好", "/candidates/activity-kart.jpg", 178, 120, 28, { indoor: true, quiet: false, conversationFriendly: false, nonSpicyAvailable: null, queueRisk: "medium" }),
-  demo("museum", "activity", "文化艺术", "当代艺术中心", "新展开放 · 建议提前预约", "/candidates/activity-museum.jpg", 100, 150, 24, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
-  demo("camp", "activity", "户外放松", "城市滨江轻露营", "装备与茶点需二次确认", "/candidates/activity-camp.jpg", 126, 180, 38, { indoor: false, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
-  demo("game", "activity", "轻松社交", "META 桌游社", "桌游教学 · 适合多人", "/candidates/activity-boardgame.jpg", 88, 180, 20, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
-  demo("escape", "activity", "沉浸解谜", "谜盒沉浸剧场", "轻恐主题 · 人数要求需确认", "/candidates/activity-escape.jpg", 168, 120, 32, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
-  demo("pottery", "activity", "手作体验", "泥作陶艺工坊", "拉坯体验 · 作品可烧制", "/candidates/activity-pottery.jpg", 158, 120, 26, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
-  demo("brunch", "activity", "轻食聚会", "梧桐树下 Brunch", "露台座位 · 宠物友好", "/candidates/activity-brunch.jpg", 138, 120, 22, { indoor: false, quiet: true, conversationFriendly: true, nonSpicyAvailable: true, queueRisk: "medium" }),
-  demo("climb", "activity", "运动挑战", "岩时攀岩馆", "室内抱石 · 含基础教学", "/candidates/activity-climb.jpg", 198, 150, 42, { indoor: true, quiet: false, conversationFriendly: false, nonSpicyAvailable: null, queueRisk: "medium" }),
+  demo("massage", "activity", "头疗按摩", "松下头疗放松馆", "头疗按摩 · 双人放松", "/candidates/activity-brunch.jpg", 168, 90, 24, { indoor: true, quiet: true, conversationFriendly: false, nonSpicyAvailable: null, queueRisk: "low" }),
+  demo("climb", "activity", "攀岩", "岩时攀岩馆", "室内抱石 · 含基础教学", "/candidates/activity-climb.jpg", 198, 150, 32, { indoor: true, quiet: false, conversationFriendly: false, nonSpicyAvailable: null, queueRisk: "medium" }),
+  demo("cinema", "activity", "电影", "光影电影空间", "多人观影 · 场次需确认", "/candidates/activity-museum.jpg", 78, 150, 22, { indoor: true, quiet: true, conversationFriendly: false, nonSpicyAvailable: null, queueRisk: "medium" }),
+  demo("pottery", "activity", "陶艺泥塑", "泥作陶艺工坊", "拉坯体验 · 作品可烧制", "/candidates/activity-pottery.jpg", 158, 120, 26, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
+  demo("ktv", "activity", "KTV", "声场量贩 KTV", "多人包厢 · 适合聚会", "/candidates/activity-boardgame.jpg", 128, 180, 30, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "medium" }),
+  demo("beads", "activity", "拼豆手作", "像素拼豆工作室", "材料任选 · 零基础友好", "/candidates/activity-pottery.jpg", 98, 120, 18, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
+  demo("murder", "activity", "剧本杀", "谜盒沉浸剧场", "多人推理 · 主题需确认", "/candidates/activity-escape.jpg", 168, 240, 28, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
+  demo("mahjong", "activity", "麻将棋牌", "碰面棋牌空间", "独立包间 · 自动麻将桌", "/candidates/activity-boardgame.jpg", 88, 180, 20, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
 ];
 
 const diningTemplates: DemoTemplate[] = [

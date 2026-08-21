@@ -1,7 +1,19 @@
 import { getD1 } from "../db";
 import type { Candidate, Choice, PreferenceExtraction, RoomConfig } from "./couju";
 
-export type CandidateMeta = { mode: "live" | "demo"; label: string; fetchedAt: string; disclaimer?: string };
+export type CandidateMeta = {
+  mode: "live" | "demo";
+  label: string;
+  fetchedAt: string;
+  disclaimer?: string;
+  keywords?: string[];
+  avoid?: string[];
+  page?: number;
+  center?: { lng: number; lat: number } | null;
+  seed?: string;
+  focused?: boolean;
+  strategy?: "explore" | "focused" | "learn";
+};
 
 export type StoredMember = {
   id: string;
@@ -149,6 +161,20 @@ export async function updateStoredMember(input: {
   await db.prepare("UPDATE members SET budget_label = ?, commute_label = ?, setting = ?, note = ?, extraction_json = ?, choices_json = ?, submitted_at = ?, updated_at = ? WHERE id = ? AND room_code = ?")
     .bind(input.budgetLabel, input.commuteLabel, input.setting, input.note, JSON.stringify(input.extraction), JSON.stringify(input.choices), now, now, input.memberId, input.roomCode).run();
   await db.prepare("UPDATE rooms SET updated_at = ? WHERE code = ?").bind(now, input.roomCode).run();
+  return true;
+}
+
+export async function replaceRoomCandidates(input: { roomCode: string; memberId: string; token: string; candidates: Candidate[]; meta: CandidateMeta }) {
+  const db = getD1();
+  const creator = await db.prepare("SELECT id, token_hash FROM members WHERE room_code = ? ORDER BY created_at ASC LIMIT 1").bind(input.roomCode).first<{ id: string; token_hash: string }>();
+  if (!creator || creator.id !== input.memberId || !safeEqual(creator.token_hash, await hashToken(input.token))) return false;
+  const now = new Date().toISOString();
+  await db.batch([
+    db.prepare("UPDATE rooms SET candidates_json = ?, candidate_meta_json = ?, updated_at = ? WHERE code = ?")
+      .bind(JSON.stringify(input.candidates.slice(0, 16)), JSON.stringify(input.meta), now, input.roomCode),
+    db.prepare("UPDATE members SET choices_json = NULL, submitted_at = NULL, updated_at = ? WHERE room_code = ?")
+      .bind(now, input.roomCode),
+  ]);
   return true;
 }
 
