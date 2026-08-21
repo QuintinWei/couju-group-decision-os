@@ -1,6 +1,6 @@
 # 凑局 AI 工作流与 Prompt 说明
 
-本文用于作品评审、技术沟通和无法稳定访问外部模型时的效果展示。它描述生产目标架构；公开 Demo 使用相同输入 / 输出契约的本地回退，确保无需 API Key 也能完整体验。
+本文用于作品评审、技术沟通和外部服务异常时的效果展示。公开 Demo 已接入真实多人房间、DeepSeek 与高德，并保留相同输入 / 输出契约的可解释回退。
 
 ## 1. 系统目标
 
@@ -16,6 +16,8 @@ AI 不直接决定“去哪”。当前默认预留价格更低的 DeepSeek V4 F
 ```text
 房间配置（城市 / 日期 / 时间 / 人数 / 类型）
                     +
+真实成员加入（昵称 / 出发区域）
+                    +
 成员输入（滑卡 / 标签 / 一句话）
                     ↓
        Preference Extractor（LLM）
@@ -30,7 +32,7 @@ AI 不直接决定“去哪”。当前默认预留价格更低的 DeepSeek V4 F
                     ↓
        Explanation Writer（LLM，只读证据）
                     ↓
-     接受 / 可接受 / 否决重排 / Plan Locked
+       三类取舍 / 否决重排 / Plan Locked
                     ↓
              导航 / 日历 / 分享
 ```
@@ -183,11 +185,13 @@ adjusted_u = confidence × u + (1 - confidence) × 0.5
 ### 5.3 公平排序
 
 ```text
-Score(c) = 0.40 × MinUtility
-         + 0.30 × GeoMean
-         + 0.20 × MeanUtility
-         + 0.10 × (1 - MaxRegret)
-         - 0.10 × Uncertainty
+当存在 MinUtility ≥ 0.60 的候选：
+Score(c) = 0.35 × MinUtility + 0.55 × GeoMean + 0.10 × MeanUtility
+
+否则：
+Score(c) = 0.65 × MinUtility + 0.25 × GeoMean + 0.10 × MeanUtility
+
+最终扣除 0.08 × Uncertainty，并优先保留 Pareto 前沿候选。
 ```
 
 权重设计优先保护最不满意的人，同时避免一个极端低分被整体均值掩盖。
@@ -288,13 +292,14 @@ Score(c) = 0.40 × MinUtility
 
 ## 10. 当前公开 Demo 与生产版本的边界
 
-公开 Demo 已实现完整前端状态机、六城场景分流、滑卡、DeepSeek JSON 字段抽取接口、结构化约束确认、确定性 FairMix、否决重排、锁定、导航和日历动作。
+公开 Demo 已实现 D1 持久化多人房间、跨设备加入、六城场景分流、滑卡、DeepSeek JSON 字段抽取与结果解释、确定性 FairMix、否决重排、锁定、导航和日历动作。
 
 为保证任何评委无需登录或 API Key 都能稳定体验：
 
 - 有高德 Key 时，候选来自地点搜索 2.0；否则使用明确标注的本地演示数据；
 - 有 DeepSeek Key 时，Preference Extractor 使用 JSON Output；否则使用动态规则抽取；
 - FairMix 过程与结果使用可复现的确定性代码，滑卡和约束会真实改变结果；
+- 成员的地铁站 / 商圈由高德地理编码为大致坐标，用于成员到候选的距离估算；
 - 地图通过深链打开，日历由浏览器生成 `.ics` 文件。
 
-当前已将 Prompt 接入服务端 DeepSeek Gateway，并将 FairMix 独立为带测试的纯函数模块。实时多人、真实路线与订座事实仍属于下一阶段。
+当前多人房间已经可用。下一阶段是接入高德实时公交 / 驾车路线矩阵，以及订座和营业状态等商户事实。

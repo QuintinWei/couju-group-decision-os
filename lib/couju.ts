@@ -1,4 +1,4 @@
-export type Stage = "home" | "create" | "room" | "swipe" | "constraints" | "ranking" | "results" | "locked";
+export type Stage = "home" | "create" | "join" | "room" | "swipe" | "constraints" | "ranking" | "results" | "locked";
 export type Choice = "no" | "okay" | "like";
 export type DecisionKind = "activity" | "dining";
 export type DataMode = "live" | "demo";
@@ -103,6 +103,20 @@ export type RankContext = {
   vetoReason?: string;
 };
 
+export type GroupMemberPreference = {
+  id: string;
+  name: string;
+  origin: string;
+  originLocation?: { lng: number; lat: number } | null;
+  budgetLabel: string;
+  commuteLabel: string;
+  setting: string;
+  note: string;
+  extraction: PreferenceExtraction | null;
+  choices: Record<string, Choice>;
+  submittedAt: string | null;
+};
+
 export type RankedCandidate = Candidate & {
   groupFit: number;
   minUtility: number;
@@ -113,6 +127,9 @@ export type RankedCandidate = Candidate & {
   evidence: string[];
   unknownFacts: string[];
   explanation: string;
+  memberUtilities: Array<{ memberId: string; name: string; utility: number; travelMinutes: number | null }>;
+  meanTravelMinutes: number | null;
+  onParetoFrontier: boolean;
 };
 
 type DemoTemplate = Omit<Candidate, "city" | "district" | "address" | "source" | "location"> & { travel: number };
@@ -248,42 +265,71 @@ export function extractWithRules(note: string, kind: DecisionKind): PreferenceEx
 }
 
 export function rankCandidates(candidates: Candidate[], context: RankContext): RankedCandidate[] {
-  const budget = mergeNumericLimit(parseLimit(context.budgetLabel), constraintNumber(context.extraction, "max_budget"));
-  let commute = parseLimit(context.commuteLabel);
-  if (context.vetoReason === "还是太远" && commute !== null) commute = Math.max(10, commute - 10);
-  const start = Math.max(toMinutes(context.config.startTime), constraintTime(context.extraction, "arrival_after") ?? 0);
-  const end = Math.min(toMinutes(context.config.endTime), constraintTime(context.extraction, "leave_before") ?? 24 * 60);
-  const availableMinutes = Math.max(0, end - start);
-  const noSpicy = context.setting === "不吃辣" || hasConstraint(context.extraction, "no_spicy");
-  const excluded = new Set(context.excludedIds ?? []);
+  return rankGroupCandidates(candidates, [{
+    id: "current-user",
+    name: "你",
+    origin: "",
+    budgetLabel: context.budgetLabel,
+    commuteLabel: context.commuteLabel,
+    setting: context.setting,
+    note: "",
+    extraction: context.extraction,
+    choices: context.choices,
+    submittedAt: new Date().toISOString(),
+  }], context.config, context.excludedIds, context.vetoReason);
+}
 
-  return candidates
+export function rankGroupCandidates(
+  candidates: Candidate[],
+  members: GroupMemberPreference[],
+  config: RoomConfig,
+  excludedIds: string[] = [],
+  vetoReason = "",
+): RankedCandidate[] {
+  const readyMembers = members.filter((member) => member.submittedAt);
+  if (readyMembers.length === 0) return [];
+  const excluded = new Set(excludedIds);
+  const scored = candidates
     .flatMap((candidate) => {
-      const choice = context.choices[candidate.id];
-      if (excluded.has(candidate.id) || choice === "no") return [];
-      if (budget !== null && candidate.priceValue !== null && candidate.priceValue > budget) return [];
-      if (commute !== null && candidate.estimatedTravelMinutes !== null && candidate.estimatedTravelMinutes > commute) return [];
-      if (candidate.durationMinutes > availableMinutes) return [];
-      if (noSpicy && candidate.features.nonSpicyAvailable === false) return [];
+      if (excluded.has(candidate.id)) return [];
+      const memberContexts = readyMembers.map((member) => {
+        const budget = mergeNumericLimit(parseLimit(member.budgetLabel), constraintNumber(member.extraction, "max_budget"));
+        let commute = parseLimit(member.commuteLabel);
+        if (vetoReason === "还是太远" && commute !== null) commute = Math.max(10, commute - 10);
+        const memberStart = Math.max(toMinutes(config.startTime), constraintTime(member.extraction, "arrival_after") ?? 0);
+        const memberEnd = Math.min(toMinutes(config.endTime), constraintTime(member.extraction, "leave_before") ?? 24 * 60);
+        const travelMinutes = estimateTravelBetween(member.originLocation ?? null, candidate.location) ?? candidate.estimatedTravelMinutes;
+        return { member, budget, commute, travelMinutes, availableMinutes: Math.max(0, memberEnd - memberStart), noSpicy: member.setting === "不吃辣" || hasConstraint(member.extraction, "no_spicy") };
+      });
+      if (memberContexts.some(({ member, budget, commute, travelMinutes, availableMinutes, noSpicy }) =>
+        member.choices[candidate.id] === "no" ||
+        (budget !== null && candidate.priceValue !== null && candidate.priceValue > budget) ||
+        (commute !== null && travelMinutes !== null && travelMinutes > commute) ||
+        candidate.durationMinutes > availableMinutes ||
+        (noSpicy && candidate.features.nonSpicyAvailable === false)
+      )) return [];
 
       const unknownFacts: string[] = [];
-      if (budget !== null && candidate.priceValue === null) unknownFacts.push("人均价格");
-      if (commute !== null && candidate.estimatedTravelMinutes === null) unknownFacts.push("通勤时间");
-      if (noSpicy && candidate.features.nonSpicyAvailable === null) unknownFacts.push("不辣选项");
+      if (memberContexts.some(({ budget }) => budget !== null) && candidate.priceValue === null) unknownFacts.push("人均价格");
+      if (memberContexts.some(({ commute }) => commute !== null) && candidate.estimatedTravelMinutes === null) unknownFacts.push("通勤时间");
+      if (memberContexts.some(({ noSpicy }) => noSpicy) && candidate.features.nonSpicyAvailable === null) unknownFacts.push("不辣选项");
       if (candidate.source.mode === "live" && !candidate.openToday) unknownFacts.push("营业时间");
-      if (hasConstraint(context.extraction, "allergy")) unknownFacts.push("过敏原");
+      if (memberContexts.some(({ member }) => hasConstraint(member.extraction, "allergy"))) unknownFacts.push("过敏原");
 
-      const userUtility = scoreUser(candidate, context, choice, budget, commute);
-      const utilities = [userUtility];
-      for (let i = 1; i < context.config.people; i += 1) utilities.push(scoreVirtualMember(candidate, i));
+      const memberUtilities = memberContexts.map(({ member, budget, commute, travelMinutes }) => {
+        const context: RankContext = { config, choices: member.choices, budgetLabel: member.budgetLabel, commuteLabel: member.commuteLabel, setting: member.setting, extraction: member.extraction };
+        return { memberId: member.id, name: member.name, travelMinutes, utility: scoreUser(candidate, context, member.choices[candidate.id], budget, commute, travelMinutes) };
+      });
+      const utilities = memberUtilities.map((item) => item.utility);
       const minUtility = Math.min(...utilities);
       const meanUtility = utilities.reduce((sum, value) => sum + value, 0) / utilities.length;
       const geoMean = Math.exp(utilities.reduce((sum, value) => sum + Math.log(Math.max(value, 0.01)), 0) / utilities.length);
-      const maxRegret = 1 - minUtility;
       const uncertainty = clamp((candidate.source.mode === "demo" ? 0.08 : 0) + unknownFacts.length * 0.055, 0, 0.32);
-      const raw = 0.4 * minUtility + 0.3 * geoMean + 0.2 * meanUtility + 0.1 * (1 - maxRegret) - 0.1 * uncertainty;
+      const meetsFloor = minUtility >= 0.6;
+      const raw = (meetsFloor ? 0.35 * minUtility + 0.55 * geoMean + 0.1 * meanUtility : 0.65 * minUtility + 0.25 * geoMean + 0.1 * meanUtility) - 0.08 * uncertainty;
       const groupFit = Math.round(clamp(raw, 0, 1) * 100);
-      const evidence = buildEvidence(candidate, choice, budget, commute);
+      const likedCount = memberContexts.filter(({ member }) => member.choices[candidate.id] === "like").length;
+      const evidence = [`${likedCount}/${readyMembers.length} 位成员明确喜欢`, `最低成员满意度 ${Math.round(minUtility * 100)}`, `Nash 群体效用 ${Math.round(geoMean * 100)}`];
 
       return [{
         ...candidate,
@@ -292,20 +338,33 @@ export function rankCandidates(candidates: Candidate[], context: RankContext): R
         meanUtility: Math.round(meanUtility * 100),
         geoMean: Math.round(geoMean * 100),
         uncertainty: Math.round(uncertainty * 100),
-        userUtility: Math.round(userUtility * 100),
+        userUtility: Math.round(meanUtility * 100),
         evidence,
         unknownFacts,
-        explanation: `${evidence.slice(0, 2).join("；")}。Group Fit 由你与 ${Math.max(0, context.config.people - 1)} 位演示成员的效用聚合计算。`,
+        explanation: `${evidence.join("；")}。先排除任何成员明确拒绝或违反底线的地点，再用最低满意度与 Nash 几何均值寻找真实交集。`,
+        memberUtilities: memberUtilities.map((item) => ({ ...item, utility: Math.round(item.utility * 100) })),
+        meanTravelMinutes: averageKnown(memberUtilities.map((item) => item.travelMinutes)),
+        onParetoFrontier: false,
       }];
-    })
-    .sort((a, b) => b.groupFit - a.groupFit || b.userUtility - a.userUtility);
+    });
+  const withFrontier = scored.map((candidate) => ({
+    ...candidate,
+    onParetoFrontier: !scored.some((other) => other.id !== candidate.id && dominates(other.memberUtilities, candidate.memberUtilities)),
+  }));
+  const floorExists = withFrontier.some((candidate) => candidate.minUtility >= 60);
+  return withFrontier.sort((a, b) => {
+    if (floorExists && (a.minUtility >= 60) !== (b.minUtility >= 60)) return a.minUtility >= 60 ? -1 : 1;
+    if (a.onParetoFrontier !== b.onParetoFrontier) return a.onParetoFrontier ? -1 : 1;
+    return b.groupFit - a.groupFit || b.minUtility - a.minUtility || b.meanUtility - a.meanUtility;
+  });
 }
 
-function scoreUser(candidate: Candidate, context: RankContext, choice: Choice | undefined, budget: number | null, commute: number | null): number {
+function scoreUser(candidate: Candidate, context: RankContext, choice: Choice | undefined, budget: number | null, commute: number | null, travelOverride?: number | null): number {
   let score = choice === "like" ? 0.94 : choice === "okay" ? 0.62 : 0.5;
   const adjustments: number[] = [];
   if (budget !== null && candidate.priceValue !== null) adjustments.push(clamp(1 - candidate.priceValue / Math.max(budget, 1) * 0.5, 0.35, 1));
-  if (commute !== null && candidate.estimatedTravelMinutes !== null) adjustments.push(clamp(1 - candidate.estimatedTravelMinutes / Math.max(commute, 1) * 0.35, 0.4, 1));
+  const travel = travelOverride === undefined ? candidate.estimatedTravelMinutes : travelOverride;
+  if (commute !== null && travel !== null) adjustments.push(clamp(1 - travel / Math.max(commute, 1) * 0.35, 0.4, 1));
   if (context.setting === "室内优先" && candidate.features.indoor !== null) adjustments.push(candidate.features.indoor ? 0.95 : 0.45);
   if (context.setting === "户外优先" && candidate.features.indoor !== null) adjustments.push(candidate.features.indoor ? 0.45 : 0.95);
   if (context.setting === "不吃辣" && candidate.features.nonSpicyAvailable !== null) adjustments.push(candidate.features.nonSpicyAvailable ? 0.95 : 0.1);
@@ -315,11 +374,20 @@ function scoreUser(candidate: Candidate, context: RankContext, choice: Choice | 
   return clamp(score, 0.05, 0.99);
 }
 
-function scoreVirtualMember(candidate: Candidate, memberIndex: number): number {
-  const hashed = stableHash(`${candidate.id}:${memberIndex}`) % 31;
-  const base = 0.55 + hashed / 100;
-  const ratingBoost = candidate.rating === null ? 0 : (candidate.rating - 3.5) * 0.05;
-  return clamp(base + ratingBoost, 0.45, 0.94);
+function dominates(a: Array<{ memberId: string; utility: number }>, b: Array<{ memberId: string; utility: number }>) {
+  if (a.length !== b.length) return false;
+  let strictlyBetter = false;
+  for (const item of a) {
+    const other = b.find((candidate) => candidate.memberId === item.memberId);
+    if (!other || item.utility < other.utility) return false;
+    if (item.utility > other.utility) strictlyBetter = true;
+  }
+  return strictlyBetter;
+}
+
+function averageKnown(values: Array<number | null>) {
+  const known = values.filter((value): value is number => value !== null);
+  return known.length ? Math.round(known.reduce((sum, value) => sum + value, 0) / known.length) : null;
 }
 
 function featureMatch(candidate: Candidate, feature: SoftPreferenceFeature): number {
@@ -330,17 +398,6 @@ function featureMatch(candidate: Candidate, feature: SoftPreferenceFeature): num
   if (feature === "queue_time") return candidate.features.queueRisk === "low" ? 0.95 : candidate.features.queueRisk === "medium" ? 0.6 : candidate.features.queueRisk === "high" ? 0.25 : 0.55;
   if (feature === "price") return candidate.priceValue === null ? 0.55 : clamp(1 - candidate.priceValue / 350, 0.25, 0.95);
   return 0.55;
-}
-
-function buildEvidence(candidate: Candidate, choice: Choice | undefined, budget: number | null, commute: number | null): string[] {
-  const evidence: string[] = [];
-  if (choice === "like") evidence.push("你在滑卡中标记了喜欢");
-  else if (choice === "okay") evidence.push("你标记为可以接受");
-  if (budget !== null && candidate.priceValue !== null) evidence.push(`¥${candidate.priceValue}/人未超过 ¥${budget} 上限`);
-  if (commute !== null && candidate.estimatedTravelMinutes !== null) evidence.push(`通勤估算 ${candidate.estimatedTravelMinutes} 分钟，未超过 ${commute} 分钟`);
-  if (candidate.rating !== null) evidence.push(`地点数据评分 ${candidate.rating.toFixed(1)}`);
-  if (evidence.length === 0) evidence.push("基于当前滑卡与偏好信号排序");
-  return evidence;
 }
 
 function formatDuration(minutes: number): string {
@@ -385,12 +442,6 @@ function tri(value: boolean | null): number {
   return value === null ? 0.55 : value ? 0.95 : 0.3;
 }
 
-function stableHash(value: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < value.length; i += 1) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
-  return Math.abs(hash >>> 0);
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -400,6 +451,12 @@ export function estimateTravelMinutes(city: CityName, location: { lng: number; l
   const [centerLng, centerLat] = CITY_PROFILES[city].center;
   const distance = haversineKm(centerLat, centerLng, location.lat, location.lng);
   return Math.round(clamp(12 + distance * 3.2, 12, 75));
+}
+
+export function estimateTravelBetween(origin: { lng: number; lat: number } | null, destination: { lng: number; lat: number } | null): number | null {
+  if (!origin || !destination) return null;
+  const distance = haversineKm(origin.lat, origin.lng, destination.lat, destination.lng);
+  return Math.round(clamp(10 + distance * 3.4, 8, 90));
 }
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
