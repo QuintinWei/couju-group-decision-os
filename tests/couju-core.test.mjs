@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractWithRules, getDemoCandidates, rankCandidates } from "../lib/couju.ts";
+import { ACTIVITY_INTERESTS, DINING_INTERESTS, extractWithRules, getDemoCandidates, rankCandidates } from "../lib/couju.ts";
 
 const config = { kind: "dining", city: "上海", date: "2026-08-23", startTime: "18:00", endTime: "21:30", people: 4 };
+
+test("interest choices cover the requested dining and scenic categories", () => {
+  for (const interest of ["东北菜", "川湘菜", "云贵菜", "江西菜", "东南亚菜"]) assert.ok(DINING_INTERESTS.includes(interest));
+  assert.ok(!DINING_INTERESTS.includes("云南菜"));
+  assert.ok(ACTIVITY_INTERESTS.includes("景点"));
+
+  const dining = getDemoCandidates("上海", "dining");
+  for (const type of ["东北菜", "川湘菜", "云贵菜", "江西菜", "东南亚菜"]) assert.ok(dining.some((candidate) => candidate.type === type));
+  assert.ok(getDemoCandidates("上海", "activity").some((candidate) => candidate.type === "景点"));
+});
 
 test("rule extraction changes with the user's actual sentence", () => {
   const first = extractWithRules("人均 100，晚上 7 点前离开，不吃辣", "dining");

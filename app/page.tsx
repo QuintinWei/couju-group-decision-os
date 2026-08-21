@@ -25,7 +25,15 @@ type AiExplanation = { headline: string; reasoning: string; tradeoff: string };
 const stageOrder: Stage[] = ["create", "room", "swipe", "constraints", "ranking", "results", "locked"];
 type MemberIdentity = { id: string; token: string };
 type GeoPoint = { lng: number; lat: number };
+type LocationResponse = { location?: GeoPoint; label?: string; city?: CityName | null; error?: string };
 // 旧版“演示成员样本”已移除；当前计算只接受真实加入并提交的成员。
+
+function browserLocationError(error: GeolocationPositionError) {
+  if (error.code === 1) return "浏览器未授权定位，请在地址栏权限中允许后重试；也可输入附近地铁站";
+  if (error.code === 2) return "系统暂时无法取得位置，请检查系统定位服务或网络；也可手动输入";
+  if (error.code === 3) return "定位请求超时，请重试或输入附近地铁站";
+  return "暂时无法取得当前位置，请重试或手动输入附近地铁站";
+}
 
 function createDefaultConfig(): RoomConfig {
   return { kind: "dining", city: "上海", date: shanghaiDate(1), startTime: "18:00", endTime: "21:30", people: 4 };
@@ -180,14 +188,24 @@ export default function Home() {
     navigator.geolocation.getCurrentPosition(async (position) => {
       try {
         const response = await fetch("/api/location", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ city: config.city, lat: position.coords.latitude, lng: position.coords.longitude }) });
-        const payload = await response.json() as { location?: GeoPoint; label?: string; error?: string };
+        const payload = await response.json() as LocationResponse;
         if (!response.ok || !payload.location) throw new Error(payload.error || "暂时无法识别当前位置");
-        setCreatorLocation(payload.location); setCreatorOrigin(payload.label || "当前位置附近"); setLocationStatus("已定位 · 会用于附近优先和通勤估算");
-      } catch (error) { setLocationStatus(error instanceof Error ? error.message : "定位失败，请输入附近地铁站"); }
+        const detectedCity = typeof payload.city === "string" && SUPPORTED_CITIES.includes(payload.city as CityName) ? payload.city as CityName : null;
+        setCreatorLocation(payload.location);
+        setCreatorOrigin(payload.label || "当前位置附近");
+        if (detectedCity && detectedCity !== config.city) {
+          setConfig((current) => ({ ...current, city: detectedCity }));
+          setLocationStatus(`已定位 · 已自动切换到${detectedCity}，会用于附近优先和通勤估算`);
+        } else if (detectedCity) {
+          setLocationStatus("已定位 · 会用于附近优先和通勤估算");
+        } else {
+          setLocationStatus("已定位 · 暂未识别到支持城市，仍使用当前城市和附近坐标");
+        }
+      } catch (error) { setLocationStatus(error instanceof Error ? error.message : "定位服务暂时不可用，请手动输入附近地铁站"); }
       finally { setLocating(false); }
     }, (error) => {
       setLocating(false);
-      setLocationStatus(error.code === error.PERMISSION_DENIED ? "你没有授权定位，仍可输入附近地铁站" : "没有取得定位，请输入附近地铁站");
+      setLocationStatus(browserLocationError(error));
     }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
   };
 
@@ -356,7 +374,7 @@ function CreateScreen(props: { config: RoomConfig; creatorName: string; creatorO
       <fieldset className="discovery-field"><legend>推荐方式</legend><div className="discovery-toggle"><button className={!props.ideaMode ? "selected" : ""} onClick={() => props.setIdeaMode(false)}><b>给我灵感</b><small>默认 · 跨类型随机发牌</small></button><button className={props.ideaMode ? "selected" : ""} onClick={() => props.setIdeaMode(true)}><b>我有点想法</b><small>可选 1–6 个倾向</small></button></div>{props.ideaMode && <><div className="interest-cloud">{interests.map((interest) => <button key={interest} className={props.selectedInterests.includes(interest) ? "selected" : ""} onClick={() => toggleInterest(interest)}>{interest}</button>)}</div><label className="avoid-field"><span>这次明确不想要（可选）</span><input className="form-control" value={props.avoid} onChange={(event) => props.setAvoid(event.target.value)} placeholder={props.config.kind === "activity" ? "例如：不要景点、不要太吵" : "例如：不要连锁、不要辣"} /></label></>}</fieldset>
       <fieldset><legend>预计几个人？</legend><div className="number-row">{[2, 3, 4, 5, 6].map((number) => <button key={number} className={number === props.config.people ? "selected" : ""} onClick={() => update("people", number)}>{number}</button>)}</div></fieldset>
       {(error || props.error) && <p className="form-error" role="alert">{error || props.error}</p>}<button className="full-dark-button" onClick={submit} disabled={props.loading}>{props.loading ? "正在发现附近候选…" : `创建${props.config.kind === "dining" ? "聚餐" : "活动"}房间`} <span>→</span></button>
-    </div><aside className="promise-card"><span className="lock-symbol">探</span><h3>随机，但不是乱推</h3><p>系统会控制类别多样性；位置只做附近优先。划卡后，换一批会参考你的真实反馈。</p><div><span>✓</span>默认无需先想好类型</div><div><span>✓</span>活动不再混入普通景点</div><div><span>✓</span>喜欢与拒绝会影响下一批</div></aside></div>
+    </div><aside className="promise-card"><span className="lock-symbol">探</span><h3>随机，但不是乱推</h3><p>系统会控制类别多样性；位置只做附近优先。</p><div><span>✓</span>默认无需先想好类型</div><div><span>✓</span>活动不再混入普通景点</div><div><span>✓</span>喜欢与拒绝会影响下一批</div></aside></div>
   </section>;
 }
 
@@ -368,12 +386,12 @@ function JoinScreen({ room, loading, error, onJoin }: { room: StoredRoom; loadin
     navigator.geolocation.getCurrentPosition(async (position) => {
       try {
         const response = await fetch("/api/location", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ city: room.config.city, lat: position.coords.latitude, lng: position.coords.longitude }) });
-        const payload = await response.json() as { location?: GeoPoint; label?: string; error?: string };
-        if (!response.ok || !payload.location) throw new Error(payload.error || "定位失败");
+        const payload = await response.json() as LocationResponse;
+        if (!response.ok || !payload.location) throw new Error(payload.error || "定位服务暂时不可用");
         setOrigin(payload.label || "当前位置附近"); setOriginLocation(payload.location); setLocationMessage("已定位 · 会参与你的通勤计算");
-      } catch (cause) { setLocationMessage(cause instanceof Error ? cause.message : "定位失败，请手动输入"); }
+      } catch (cause) { setLocationMessage(cause instanceof Error ? cause.message : "定位服务暂时不可用，请手动输入"); }
       finally { setLocating(false); }
-    }, () => { setLocating(false); setLocationMessage("未授权定位，请手动输入地铁站或商圈"); }, { timeout: 10000, maximumAge: 300000 });
+    }, (error) => { setLocating(false); setLocationMessage(browserLocationError(error)); }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
   };
   return <section className="flow-page create-page join-page"><ScreenTitle eyebrow={`ROOM ${room.code}`} title={`加入“${roomTitle(room.config.kind)}”`} detail={`${room.config.city} · ${formatDate(room.config.date)} · 已有 ${room.members.length}/${room.config.people} 人加入`} /><div className="join-card"><div className="join-summary"><span>{room.config.kind === "dining" ? "♨" : "✦"}</span><div><b>{room.config.startTime}–{room.config.endTime}</b><small>{room.config.city} · {room.candidates.length} 个候选</small></div></div><label><span>你的昵称</span><input className="form-control" value={name} maxLength={18} onChange={(event) => setName(event.target.value)} placeholder="朋友会看到这个名字" /></label><label><span>从哪里出发</span><div className="location-input-row"><input className="form-control" value={origin} maxLength={40} onChange={(event) => { setOrigin(event.target.value); setOriginLocation(null); setLocationMessage("提交时会识别这个地铁站或商圈"); }} placeholder="不用填写精确住址" /><button type="button" onClick={locate} disabled={locating}>{locating ? "定位中" : "⌖ 定位"}</button></div><small className={originLocation ? "location-ok" : ""}>{locationMessage}</small></label>{error && <p className="form-error">{error}</p>}<button className="full-dark-button" disabled={loading || !name.trim() || !origin.trim()} onClick={() => onJoin(name, origin, originLocation)}>{loading ? "正在加入…" : "加入房间"} <span>→</span></button><p className="privacy-note">系统定位只在你点击并授权后使用；手输地铁站也会真正参与通勤计算。</p></div></section>;
 }

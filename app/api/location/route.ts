@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   if (lat !== null && lng !== null) {
     const located = await locateFromBrowser({ lat, lng });
     if (!located) return Response.json({ error: "暂时无法解析当前位置" }, { status: 503 });
-    return Response.json({ ...located, mode: "device" });
+    return Response.json({ location: located.location, label: located.label, city: located.city, mode: "device" });
   }
   const origin = typeof body.origin === "string" ? body.origin.trim().slice(0, 40) : "";
   if (!origin) return Response.json({ error: "请输入地铁站或商圈" }, { status: 400 });

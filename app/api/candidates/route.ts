@@ -78,7 +78,6 @@ function diversify(resultSets: Array<{ interest: string; pois: AmapPoi[] }>, cit
       if (!poi?.id || seen.has(poi.id) || excludedIds.has(poi.id)) continue;
       const searchable = `${poi.name || ""} ${poi.type || ""} ${poi.business?.tag || ""}`;
       if (avoidTokens.some((token) => searchable.includes(token))) continue;
-      if (kind === "activity" && /景区|景点|公园|古镇|纪念馆|旅游区|风景名胜/.test(searchable)) continue;
       const mapped = mapPoi(poi, city, kind, candidates.length, result.interest, center);
       if (mapped.length) { seen.add(poi.id); candidates.push(mapped[0]); }
     }
@@ -133,6 +132,7 @@ function mapPoi(poi: AmapPoi, city: CityName, kind: DecisionKind, index: number,
 }
 
 function fallbackActivityImage(interest: string) {
+  if (/景点/.test(interest)) return "activity-camp";
   if (/攀岩|羽毛球|保龄球/.test(interest)) return "activity-climb";
   if (/陶艺|拼豆/.test(interest)) return "activity-pottery";
   if (/剧本杀|密室/.test(interest)) return "activity-escape";
@@ -150,7 +150,7 @@ function parseLocation(value: string | null) {
 function demoResponse(city: CityName, kind: DecisionKind, interests: string[], seed: string, focused: boolean, strategy: "explore" | "focused" | "learn", disclaimer: string, status: number) {
   const matching = getDemoCandidates(city, kind).map((candidate) => ({ ...candidate, matchedInterest: candidate.type }));
   const filtered = focused ? matching.filter((candidate) => interests.some((interest) => candidate.type.includes(interest) || interest.includes(candidate.type))) : matching;
-  const candidates = stableShuffle(filtered.length >= 4 ? filtered : matching, seed);
+  const candidates = stableShuffle(focused && filtered.length > 0 ? filtered : matching, seed);
   return Response.json({
     candidates,
     meta: { mode: "demo", label: focused ? "按想法探索 · 演示" : strategy === "learn" ? "根据划卡换一批 · 演示" : "随机发现 · 演示", fetchedAt: "2026-08-21T00:00:00.000Z", city, kind, keywords: interests, page: 1, center: null, seed, focused, strategy, disclaimer },

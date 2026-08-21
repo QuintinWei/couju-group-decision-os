@@ -1,3 +1,5 @@
+import { SUPPORTED_CITIES, type CityName } from "./couju";
+
 export type GeoPoint = { lng: number; lat: number };
 
 export async function geocodeOrigin(city: string, origin: string): Promise<GeoPoint | null> {
@@ -13,29 +15,42 @@ export async function geocodeOrigin(city: string, origin: string): Promise<GeoPo
   } catch { return null; }
 }
 
-export async function locateFromBrowser(point: GeoPoint): Promise<{ location: GeoPoint; label: string } | null> {
+export async function locateFromBrowser(point: GeoPoint): Promise<{ location: GeoPoint; label: string; city: CityName | null }> {
+  const fallback = { location: roundPoint(point), label: "当前位置附近", city: null as CityName | null };
   const key = process.env.AMAP_WEB_SERVICE_KEY;
-  if (!key) return null;
+  if (!key) return fallback;
+
+  let converted: GeoPoint;
   try {
-    const converted = await convertGpsPoint(point, key);
+    converted = await convertGpsPoint(point, key);
+  } catch {
+    return fallback;
+  }
+
+  const fallbackForConverted = { ...fallback, location: roundPoint(converted) };
+  try {
     const params = new URLSearchParams({ key, location: `${converted.lng.toFixed(6)},${converted.lat.toFixed(6)}`, radius: "1200", extensions: "all", output: "json" });
     const response = await fetch(`https://restapi.amap.com/v3/geocode/regeo?${params}`, { signal: AbortSignal.timeout(7000) });
-    if (!response.ok) return null;
+    if (!response.ok) return fallbackForConverted;
     const payload = await response.json() as {
       status?: string;
       regeocode?: {
         formatted_address?: string;
-        addressComponent?: { district?: string | string[]; township?: string | string[] };
+        addressComponent?: { city?: string | string[]; province?: string | string[]; district?: string | string[]; township?: string | string[] };
         pois?: Array<{ name?: string; distance?: string }>;
       };
     };
-    if (payload.status !== "1" || !payload.regeocode) return null;
+    if (payload.status !== "1" || !payload.regeocode) return fallbackForConverted;
+    const components = payload.regeocode.addressComponent;
     const poi = payload.regeocode.pois?.find((item) => item.name)?.name;
-    const district = textValue(payload.regeocode.addressComponent?.district);
-    const township = textValue(payload.regeocode.addressComponent?.township);
-    const label = poi ? `${poi}附近` : [district, township].filter(Boolean).join(" · ") || payload.regeocode.formatted_address || "当前位置附近";
-    return { location: { lng: roundCoord(converted.lng), lat: roundCoord(converted.lat) }, label: label.slice(0, 40) };
-  } catch { return null; }
+    const district = textValue(components?.district);
+    const township = textValue(components?.township);
+    const label = poi ? `${poi}附近` : [district, township].filter(Boolean).join(" · ") || payload.regeocode.formatted_address || fallback.label;
+    const city = findSupportedCity([components?.city, components?.province, components?.district]);
+    return { location: fallbackForConverted.location, label: label.slice(0, 40), city };
+  } catch {
+    return fallbackForConverted;
+  }
 }
 
 async function convertGpsPoint(point: GeoPoint, key: string): Promise<GeoPoint> {
@@ -48,7 +63,20 @@ async function convertGpsPoint(point: GeoPoint, key: string): Promise<GeoPoint> 
 }
 
 function textValue(value: string | string[] | undefined) {
-  return typeof value === "string" ? value : "";
+  return textValues(value).join("");
+}
+
+function textValues(value: string | string[] | undefined) {
+  return (Array.isArray(value) ? value : [value]).filter((item): item is string => typeof item === "string" && item.length > 0);
+}
+
+function findSupportedCity(values: Array<string | string[] | undefined>): CityName | null {
+  const normalized = values.flatMap(textValues).map((value) => value.replace(/市/g, ""));
+  return SUPPORTED_CITIES.find((city) => normalized.some((value) => value === city || value.includes(city))) ?? null;
+}
+
+function roundPoint(point: GeoPoint): GeoPoint {
+  return { lng: roundCoord(point.lng), lat: roundCoord(point.lat) };
 }
 
 function roundCoord(value: number) {

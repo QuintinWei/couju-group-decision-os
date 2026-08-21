@@ -16,8 +16,8 @@ export const CITY_PROFILES = {
 export type CityName = keyof typeof CITY_PROFILES;
 export const SUPPORTED_CITIES = Object.keys(CITY_PROFILES) as CityName[];
 
-export const DINING_INTERESTS = ["本帮菜", "日料", "火锅", "烤肉", "粤菜", "西餐", "云南菜", "素食", "Brunch", "小酒馆"] as const;
-export const ACTIVITY_INTERESTS = ["头疗按摩", "攀岩", "电影", "陶艺泥塑", "KTV", "拼豆手作", "剧本杀", "麻将棋牌", "桌游", "密室逃脱", "保龄球", "羽毛球", "脱口秀", "展览"] as const;
+export const DINING_INTERESTS = ["本帮菜", "日料", "火锅", "烤肉", "粤菜", "西餐", "东北菜", "川湘菜", "云贵菜", "江西菜", "东南亚菜", "素食", "Brunch", "小酒馆"] as const;
+export const ACTIVITY_INTERESTS = ["头疗按摩", "攀岩", "电影", "陶艺泥塑", "KTV", "拼豆手作", "剧本杀", "麻将棋牌", "桌游", "密室逃脱", "保龄球", "羽毛球", "脱口秀", "展览", "景点"] as const;
 export const DEFAULT_INTERESTS: Record<DecisionKind, string[]> = {
   dining: [...DINING_INTERESTS],
   activity: [...ACTIVITY_INTERESTS],
@@ -151,10 +151,15 @@ const activityTemplates: DemoTemplate[] = [
   demo("beads", "activity", "拼豆手作", "像素拼豆工作室", "材料任选 · 零基础友好", "/candidates/activity-pottery.jpg", 98, 120, 18, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
   demo("murder", "activity", "剧本杀", "谜盒沉浸剧场", "多人推理 · 主题需确认", "/candidates/activity-escape.jpg", 168, 240, 28, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
   demo("mahjong", "activity", "麻将棋牌", "碰面棋牌空间", "独立包间 · 自动麻将桌", "/candidates/activity-boardgame.jpg", 88, 180, 20, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
+  demo("scenic", "activity", "景点", "城市文化漫游线", "展馆与街区 · 适合周末慢慢逛", "/candidates/activity-camp.jpg", 98, 180, 24, { indoor: null, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
 ];
 
 const diningTemplates: DemoTemplate[] = [
-  demo("yunnan", "dining", "云南菜", "山野云南菜", "菌菇与汽锅鸡 · 可沟通不辣", "/candidates/food-yunnan.jpg", 148, 120, 28, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: true, queueRisk: "medium" }),
+  demo("yunnan", "dining", "云贵菜", "山野云贵菜", "菌菇与汽锅鸡 · 可沟通不辣", "/candidates/food-yunnan.jpg", 148, 120, 28, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: true, queueRisk: "medium" }),
+  demo("northeast", "dining", "东北菜", "北境灶台", "锅包肉与铁锅炖 · 适合多人分享", "/candidates/food-noodle.jpg", 138, 120, 30, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: true, queueRisk: "medium" }),
+  demo("chuxiang", "dining", "川湘菜", "辣有度小馆", "小炒与家常菜 · 辣度可沟通", "/candidates/food-hotpot.jpg", 128, 120, 31, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: false, queueRisk: "medium" }),
+  demo("jiangxi", "dining", "江西菜", "赣味小馆", "瓦罐汤与南昌拌粉 · 家常口味", "/candidates/food-noodle.jpg", 98, 90, 23, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
+  demo("southeast-asian", "dining", "东南亚菜", "南洋食集", "海南鸡饭与泰式小食 · 适合分享", "/candidates/food-brunch.jpg", 158, 120, 29, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: true, queueRisk: "medium" }),
   demo("hotpot", "dining", "火锅", "巷里重庆火锅", "鸳鸯锅 · 适合多人分享", "/candidates/food-hotpot.jpg", 168, 120, 32, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: true, queueRisk: "high" }),
   demo("sushi", "dining", "日料", "鮨间小馆", "寿司拼盘 · 安静吧台", "/candidates/food-sushi.jpg", 218, 90, 24, { indoor: true, quiet: true, conversationFriendly: false, nonSpicyAvailable: true, queueRisk: "medium" }),
   demo("bbq", "dining", "炭火烤肉", "炭集烤肉", "店员代烤 · 包厢需确认", "/candidates/food-bbq.jpg", 188, 120, 36, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: true, queueRisk: "medium" }),
