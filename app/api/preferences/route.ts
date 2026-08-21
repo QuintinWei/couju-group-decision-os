@@ -32,7 +32,9 @@ export async function POST(request: Request) {
   });
 
   try {
-    const response = await fetch(resolveChatCompletionsUrl(process.env.DEEPSEEK_API_BASE), {
+    const endpoint = resolveChatCompletionsUrl(process.env.DEEPSEEK_API_BASE);
+    const officialDeepSeek = new URL(endpoint).hostname === "api.deepseek.com";
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -41,6 +43,10 @@ export async function POST(request: Request) {
           { role: "system", content: "你是凑局的偏好字段抽取器。只输出 JSON，不推荐地点，不补造用户未说过的事实。" },
           { role: "user", content: prompt },
         ],
+        ...(officialDeepSeek ? {
+          thinking: { type: "disabled" },
+          response_format: { type: "json_object" },
+        } : {}),
         max_tokens: 1200,
         temperature: 0.1,
       }),
