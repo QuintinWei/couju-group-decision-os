@@ -5,7 +5,7 @@
 [在线体验 Interactive Demo](https://couju-demo.quintinwei1314.chatgpt.site/) · 2–6 人本地聚餐 / 活动决策 · 移动端与桌面端均可体验
 
 > [!IMPORTANT]
-> 当前项目仅用于作品集与 Demo 展示，尚未接入任何真实 API Key。候选数据、AI 偏好抽取与推荐流程均为本地预置或模拟结果，不代表已接入实时商户、地图或线上大模型服务。
+> 当前项目用于作品集与 Demo 展示。代码已接入 DeepSeek JSON 字段抽取与高德 POI 检索接口，但公开环境只有在配置服务端 Key 后才启用；没有 Key 或接口失败时会明确显示“规则降级 / 演示候选”，不会伪装成实时数据。
 
 ## 演示视频
 
@@ -33,7 +33,7 @@ https://github.com/user-attachments/assets/009544ca-8dd0-47e0-9569-3797646de0a3
 1. 点击「体验完整决策」。
 2. 选择「一起聚餐」或「周末活动」。
 3. 修改城市、日期、开始 / 结束时间和 2–6 人规模。
-4. 进入房间，完成 8 张带真实场景图片的私密滑卡。
+4. 进入房间，查看候选来源并完成私密滑卡。
 5. 设置预算、通勤和饮食 / 空间底线，并输入一句自然语言偏好。
 6. 查看结构化标签回显，确认后启动 FairMix 求交集。
 7. 查看 Top 3、Group Fit 与推荐依据。
@@ -42,12 +42,14 @@ https://github.com/user-attachments/assets/009544ca-8dd0-47e0-9569-3797646de0a3
 
 当前 Demo 包含：
 
+- 上海首发、北京 / 深圳 / 杭州 / 成都 / 广州保留的六城地点接口；
 - 城市、日期、时间窗与人数的真实表单交互；
 - 聚餐与活动两套完全独立的候选和结果链路；
 - 16 个带场景图片的本地候选；
 - 鼠标 / 触摸滑卡与按钮双交互；
-- 自然语言偏好 → 结构化约束的确认界面；
-- 候选过滤、FairMix 排序、Top 3 对比；
+- DeepSeek V4 Flash JSON 字段抽取，以及无 Key 时的动态规则降级；
+- 滑卡、预算、通勤、时间和确认字段真正参与候选过滤与 FairMix 排序；
+- 推荐结果的数据来源、更新时间、分数拆解和待确认事实；
 - 接受、可接受、否决、动态重排；
 - 最终行动卡、地图导航和 `.ics` 日历文件生成。
 
@@ -57,11 +59,11 @@ AI 负责理解低成本、非结构化的人类表达，并把它整理成可�
 
 | 模块 | 方法 | 作用 |
 |---|---|---|
-| Preference Extractor | LLM + Structured Output | 把“我 17 点后才到，不想排队”抽取为时间硬约束和排队软偏好 |
-| Candidate Retriever | 候选库 / 地点工具 | 找到城市、日期和人数匹配的真实候选 |
+| Preference Extractor | DeepSeek JSON Output + 校验 | 把“我 17 点后才到，不想排队”抽取为时间硬约束和排队软偏好 |
+| Candidate Retriever | 高德 POI / 明示演示回退 | 返回地点 ID、地址、坐标、来源与更新时间；失败时不伪装实时数据 |
 | Feasibility Checker | 规则 | 校验时间、预算、距离、忌口等硬约束 |
 | FairMix Engine | 确定性代码 | 保护最低个人效用，兼顾群体均值和最大后悔值 |
-| Explanation Writer | LLM + 只读算法证据 | 把排名依据转成简短、可解释且不泄露个人隐私的文案 |
+| Evidence Writer | 确定性证据模板 | 把得分分解与候选事实转成简短、不泄露个人输入的解释 |
 | Action Connector | 地图 / 日历深链 | 把推荐变成现实行动 |
 
 详细 Prompt、输入 / 输出和降级策略见 [AI 工作流说明](docs/AI_WORKFLOW.md)。
@@ -110,14 +112,18 @@ Score = 0.40 × 最低个人效用
 - 偏好、预算和忌口默认私密；小组只看到完成进度和群体结论。
 - 结果解释只使用匿名群体汇总，不显示“谁导致了哪个限制”。
 - 过敏、无障碍、明确时间等硬约束不会被平均分抵消。
-- 无可行候选时不伪造答案，而是提出一个成本最低的私密澄清问题。
+- 无可行候选时不伪造答案，而是明确进入“调整底线”状态。
 - Prompt 和 Schema 需要版本化；算法结果可回放、可测试。
 
-## Demo 实现边界
+## 数据模式与实现边界
 
-为了保证作品展示无需 API Key、网络波动时仍可完整体验，当前公开 Demo 使用精选本地候选、预置结构化抽取结果与确定性重排流程。生产版本的 LLM 接入点、Prompt、JSON 输出契约和规则回退已在 `docs/AI_WORKFLOW.md` 中定义。
+为了保证作品展示无需 API Key、网络波动时仍可完整体验，系统有两层明确模式：
 
-这意味着：Demo 展示的是完整产品交互与 AI 工作流效果；外部事实、实时多人同步和线上 LLM 调用属于下一阶段接入项，不在页面中伪装为已上线能力。
+- 配置 `DEEPSEEK_API_KEY`：服务端调用 `deepseek-v4-flash`，返回 JSON 字段并经代码白名单校验；失败时使用本地规则抽取。
+- 配置 `AMAP_WEB_SERVICE_KEY`：六城通过高德地点搜索 2.0 获取 POI；失败时使用明确标注的演示候选。
+- FairMix 始终由本地确定性函数执行，不由语言模型决定推荐结果。
+
+当前实时多人房间仍未接入，界面中的其他成员明确标注为演示样本。价格、营业时间、通勤估算和可订状态若证据不足，会显示“待确认”。
 
 ## 技术栈
 
@@ -125,6 +131,8 @@ Score = 0.40 × 最低个人效用
 - Vinext + Cloudflare Runtime
 - 原生 CSS 响应式界面
 - 本地结构化候选数据与图片资源
+- DeepSeek Chat Completions JSON Output
+- 高德地点搜索 2.0
 - Node Test + production build verification
 
 ## 本地运行
@@ -134,6 +142,14 @@ Score = 0.40 × 最低个人效用
 ```bash
 npm install
 npm run dev
+```
+
+可选服务端配置见 `.env.example`：
+
+```text
+DEEPSEEK_API_KEY=
+DEEPSEEK_MODEL=deepseek-v4-flash
+AMAP_WEB_SERVICE_KEY=
 ```
 
 构建与验证：
@@ -146,7 +162,10 @@ npm test
 ## 项目结构
 
 ```text
-app/page.tsx              完整交互状态机与 Demo 数据
+app/page.tsx              完整交互状态机与数据透明度界面
+app/api/preferences/      DeepSeek 字段抽取与规则降级
+app/api/candidates/       高德 POI 检索与演示候选回退
+lib/couju.ts              候选模型、规则抽取与 FairMix 纯函数
 app/globals.css           Apple-inspired 响应式视觉系统
 public/candidates/        聚餐与活动场景图片
 docs/AI_WORKFLOW.md       AI 架构、Prompt、输入 / 输出、降级策略
@@ -155,4 +174,4 @@ tests/                    构建与页面渲染测试
 
 ## 项目状态
 
-当前版本为可路演的交互式 MVP Demo。下一阶段将接入真实 LLM Structured Output、地点 / 路线 API、多人实时房间和服务端 FairMix 模块。
+当前版本为可路演的可验证 MVP：真实服务接口已预留并可启用，核心推荐不再是固定结果。下一阶段重点是实时多人房间、真实路线时间与订座 / 可订状态。

@@ -2,15 +2,13 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
+async function fetchFromApp(path = "/", init = {}) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
+    new Request(`http://localhost${path}`, init),
     {
       ASSETS: {
         fetch: async () => new Response("Not found", { status: 404 }),
@@ -24,20 +22,20 @@ async function render() {
 }
 
 test("server-renders the Couju product landing page", async () => {
-  const response = await render();
+  const response = await fetchFromApp("/", { headers: { accept: "text/html" } });
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>凑局 Couju — Group Decision OS<\/title>/i);
-  assert.match(html, /把群聊里的/);
-  assert.match(html, /体验完整决策/);
-  assert.match(html, /私密偏好 · 公平共识/);
-  assert.match(html, /不是多数票，是公平共识/);
-  assert.match(html, /activity-kart\.jpg/);
+  assert.match(html, /不是猜一个答案/);
+  assert.match(html, /从上海开始体验/);
+  assert.match(html, /上海首发 · 六城保留/);
+  assert.match(html, /数据模式全程可见/);
+  assert.match(html, /food-yunnan\.jpg/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
 });
-test("keeps the interactive decision flow and scene data in the product source", async () => {
+test("keeps provenance, DeepSeek extraction, and deterministic ranking in the product source", async () => {
   const [page, css, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
@@ -45,18 +43,44 @@ test("keeps the interactive decision flow and scene data in the product source",
   ]);
 
   assert.match(packageJson, /"name": "couju-group-decision-os"/);
-  assert.match(page, /type DecisionKind = "activity" \| "dining"/);
+  assert.match(page, /\/api\/candidates/);
+  assert.match(page, /\/api\/preferences/);
   assert.match(page, /type="date"/);
   assert.match(page, /type="time"/);
-  assert.match(page, /\[2,3,4,5,6\]/);
-  assert.match(page, /const activityCards: Candidate\[\]/);
-  assert.match(page, /const diningCards: Candidate\[\]/);
-  assert.match(page, /setVetoed\(true\)/);
+  assert.match(page, /rankCandidates/);
+  assert.match(page, /规则降级/);
+  assert.match(page, /演示成员样本/);
   assert.match(page, /text\/calendar/);
   assert.match(css, /\.form-control/);
   assert.match(css, /\.photo-winner/);
 
-  await access(new URL("../public/candidates/activity-kart.jpg", import.meta.url));
+  await access(new URL("../lib/couju.ts", import.meta.url));
+  await access(new URL("../app/api/candidates/route.ts", import.meta.url));
+  await access(new URL("../app/api/preferences/route.ts", import.meta.url));
+  await access(new URL("../.env.example", import.meta.url));
   await access(new URL("../public/candidates/food-yunnan.jpg", import.meta.url));
   await access(new URL("../docs/AI_WORKFLOW.md", import.meta.url));
+});
+
+test("candidate endpoint falls back honestly when no Amap key is configured", async () => {
+  const response = await fetchFromApp("/api/candidates?city=%E4%B8%8A%E6%B5%B7&kind=dining");
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.meta.mode, "demo");
+  assert.equal(payload.candidates.length, 8);
+  assert.equal(payload.candidates[0].source.mode, "demo");
+});
+
+test("preference endpoint uses dynamic rule extraction when no DeepSeek key is configured", async () => {
+  const response = await fetchFromApp("/api/preferences", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note: "人均 100，晚上 7 点前离开，不吃辣", kind: "dining", city: "上海" }),
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.extraction.mode, "rules");
+  assert.ok(payload.extraction.hardConstraints.some((item) => item.type === "max_budget" && item.value === "100"));
+  assert.ok(payload.extraction.hardConstraints.some((item) => item.type === "leave_before" && item.value === "19:00"));
+  assert.ok(payload.extraction.hardConstraints.some((item) => item.type === "no_spicy"));
 });
