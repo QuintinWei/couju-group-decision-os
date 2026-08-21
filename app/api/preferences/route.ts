@@ -32,17 +32,15 @@ export async function POST(request: Request) {
   });
 
   try {
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
+    const response = await fetch(resolveChatCompletionsUrl(process.env.DEEPSEEK_API_BASE), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
-        thinking: { type: "disabled" },
+        model: process.env.DEEPSEEK_MODEL || "deepseek-reasoner",
         messages: [
           { role: "system", content: "你是凑局的偏好字段抽取器。只输出 JSON，不推荐地点，不补造用户未说过的事实。" },
           { role: "user", content: prompt },
         ],
-        response_format: { type: "json_object" },
         max_tokens: 1200,
         temperature: 0.1,
       }),
@@ -52,11 +50,29 @@ export async function POST(request: Request) {
     const payload = await response.json() as { choices?: Array<{ finish_reason?: string; message?: { content?: string } }>; model?: string };
     const content = payload.choices?.[0]?.message?.content;
     if (!content || payload.choices?.[0]?.finish_reason === "length") throw new Error("DeepSeek returned empty or truncated JSON");
-    const extraction = normalizeExtraction(JSON.parse(content), payload.model || process.env.DEEPSEEK_MODEL || "deepseek-v4-flash");
+    const extraction = normalizeExtraction(parseJsonObject(content), payload.model || process.env.DEEPSEEK_MODEL || "deepseek-reasoner");
     return Response.json({ extraction });
   } catch {
     const fallback = extractWithRules(note, kind);
     return Response.json({ extraction: { ...fallback, warning: "DeepSeek 暂时不可用，已自动切换为本地规则抽取。" } });
+  }
+}
+
+function resolveChatCompletionsUrl(base = "https://api.deepseek.com") {
+  const normalized = base.trim().replace(/\/+$/, "");
+  if (normalized.endsWith("/chat/completions")) return normalized;
+  return `${normalized}/chat/completions`;
+}
+
+function parseJsonObject(content: string) {
+  const unfenced = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try {
+    return JSON.parse(unfenced);
+  } catch {
+    const start = unfenced.indexOf("{");
+    const end = unfenced.lastIndexOf("}");
+    if (start < 0 || end <= start) throw new Error("AI response did not contain JSON");
+    return JSON.parse(unfenced.slice(start, end + 1));
   }
 }
 

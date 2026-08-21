@@ -119,7 +119,7 @@ Score = 0.40 × 最低个人效用
 
 为了保证作品展示无需 API Key、网络波动时仍可完整体验，系统有两层明确模式：
 
-- 配置 `DEEPSEEK_API_KEY`：服务端调用 `deepseek-v4-flash`，返回 JSON 字段并经代码白名单校验；失败时使用本地规则抽取。
+- 配置 `DEEPSEEK_API_KEY`：服务端通过可配置的 OpenAI-compatible 地址调用 `deepseek-reasoner`，返回 JSON 字段并经代码白名单校验；失败时使用本地规则抽取。
 - 配置 `AMAP_WEB_SERVICE_KEY`：六城通过高德地点搜索 2.0 获取 POI；失败时使用明确标注的演示候选。
 - FairMix 始终由本地确定性函数执行，不由语言模型决定推荐结果。
 
@@ -148,7 +148,8 @@ npm run dev
 
 ```text
 DEEPSEEK_API_KEY=
-DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_API_BASE=https://api.openai-proxy.org/v1
+DEEPSEEK_MODEL=deepseek-reasoner
 AMAP_WEB_SERVICE_KEY=
 ```
 
