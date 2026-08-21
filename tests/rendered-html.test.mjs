@@ -109,6 +109,8 @@ test("the UI exposes consent-based location, city sync, and feedback-driven refr
   assert.match(page, /手输地铁站也会真正参与通勤计算/);
   assert.match(page, /自动切换到/);
   assert.doesNotMatch(page, /划卡后，换一批会参考你的真实反馈/);
+  assert.doesNotMatch(page, /活动不再混入普通景点/);
+  assert.match(page, /娱乐与景点分类型发牌/);
   assert.match(page, /这批没感觉/);
   assert.match(page, /strategy: "learn"/);
 });
