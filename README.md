@@ -150,6 +150,7 @@ npm run dev
 DEEPSEEK_API_KEY=
 DEEPSEEK_API_BASE=https://api.openai-proxy.org/v1
 DEEPSEEK_MODEL=deepseek-reasoner
+DEEPSEEK_TIMEOUT_MS=45000
 AMAP_WEB_SERVICE_KEY=
 ```
 

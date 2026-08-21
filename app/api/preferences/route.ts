@@ -44,7 +44,7 @@ export async function POST(request: Request) {
         max_tokens: 1200,
         temperature: 0.1,
       }),
-      signal: AbortSignal.timeout(9000),
+      signal: AbortSignal.timeout(resolveTimeoutMs(process.env.DEEPSEEK_TIMEOUT_MS)),
     });
     if (!response.ok) throw new Error(`DeepSeek ${response.status}`);
     const payload = await response.json() as { choices?: Array<{ finish_reason?: string; message?: { content?: string } }>; model?: string };
@@ -52,7 +52,8 @@ export async function POST(request: Request) {
     if (!content || payload.choices?.[0]?.finish_reason === "length") throw new Error("DeepSeek returned empty or truncated JSON");
     const extraction = normalizeExtraction(parseJsonObject(content), payload.model || process.env.DEEPSEEK_MODEL || "deepseek-reasoner");
     return Response.json({ extraction });
-  } catch {
+  } catch (error) {
+    console.warn("[preferences] AI extraction fallback:", error instanceof Error ? error.message : "unknown error");
     const fallback = extractWithRules(note, kind);
     return Response.json({ extraction: { ...fallback, warning: "DeepSeek 暂时不可用，已自动切换为本地规则抽取。" } });
   }
@@ -62,6 +63,11 @@ function resolveChatCompletionsUrl(base = "https://api.deepseek.com") {
   const normalized = base.trim().replace(/\/+$/, "");
   if (normalized.endsWith("/chat/completions")) return normalized;
   return `${normalized}/chat/completions`;
+}
+
+function resolveTimeoutMs(value: string | undefined) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(60000, Math.max(5000, parsed)) : 45000;
 }
 
 function parseJsonObject(content: string) {
