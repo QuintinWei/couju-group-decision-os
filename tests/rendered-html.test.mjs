@@ -29,9 +29,10 @@ test("server-renders the Couju product landing page", async () => {
   const html = await response.text();
   assert.match(html, /<title>凑局 Couju — Group Decision OS<\/title>/i);
   assert.match(html, /不是猜一个答案/);
-  assert.match(html, /从上海开始体验/);
-  assert.match(html, /上海首发 · 六城保留/);
-  assert.match(html, /数据模式全程可见/);
+  assert.match(html, /开始创建/);
+  assert.match(html, /六城地点已上线/);
+  assert.match(html, /上海 · 北京 · 深圳/);
+  assert.doesNotMatch(html, /上海首发|Beta|数据模式全程可见/);
   assert.match(html, /food-yunnan\.jpg/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
 });
@@ -69,6 +70,17 @@ test("candidate endpoint falls back honestly when no Amap key is configured", as
   assert.equal(payload.meta.mode, "demo");
   assert.equal(payload.candidates.length, 8);
   assert.equal(payload.candidates[0].source.mode, "demo");
+});
+
+test("all six cities keep a complete candidate flow", async () => {
+  for (const city of ["上海", "北京", "深圳", "杭州", "成都", "广州"]) {
+    const response = await fetchFromApp(`/api/candidates?city=${encodeURIComponent(city)}&kind=dining`);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.meta.city, city);
+    assert.ok(payload.candidates.length >= 4);
+    assert.ok(payload.candidates.every((candidate) => candidate.city === city));
+  }
 });
 
 test("preference endpoint uses dynamic rule extraction when no DeepSeek key is configured", async () => {
