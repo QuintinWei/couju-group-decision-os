@@ -4,8 +4,6 @@
 
 [在线体验 Interactive Demo](https://couju-demo.quintinwei1314.chatgpt.site/) · 2–6 人本地聚餐 / 活动决策 · 移动端与桌面端均可体验
 
-> [!IMPORTANT]
-> 当前项目用于作品集与 Demo 展示。代码已接入 DeepSeek JSON 字段抽取与高德 POI 检索接口，但公开环境只有在配置服务端 Key 后才启用；没有 Key 或接口失败时会明确显示“规则降级 / 演示候选”，不会伪装成实时数据。
 
 ## 演示视频
 
