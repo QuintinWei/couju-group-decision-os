@@ -69,10 +69,12 @@ test("keeps provenance, DeepSeek extraction, and deterministic ranking in the pr
 });
 
 test("candidate endpoint falls back honestly when no Amap key is configured", async () => {
-  const response = await fetchFromApp("/api/candidates?city=%E4%B8%8A%E6%B5%B7&kind=dining");
+  const response = await fetchFromApp("/api/candidates?city=%E4%B8%8A%E6%B5%B7&kind=dining&commute=%E2%89%A4%2045%20%E5%88%86%E9%92%9F&location=121.47,31.23");
   assert.equal(response.status, 200);
   const payload = await response.json();
   assert.equal(payload.meta.mode, "demo");
+  assert.equal(payload.meta.commuteWindow, "≤ 45 分钟");
+  assert.deepEqual(payload.meta.center, { lng: 121.47, lat: 31.23 });
   assert.ok(payload.candidates.length >= 10);
   assert.ok(["东北菜", "川湘菜", "云贵菜", "江西菜", "东南亚菜"].every((type) => payload.candidates.some((candidate) => candidate.type === type)));
   assert.ok(payload.candidates.every((candidate) => candidate.source.mode === "demo"));
@@ -110,7 +112,10 @@ test("the UI exposes consent-based location, city sync, and feedback-driven refr
   assert.match(page, /自动切换到/);
   assert.doesNotMatch(page, /划卡后，换一批会参考你的真实反馈/);
   assert.doesNotMatch(page, /活动不再混入普通景点/);
-  assert.match(page, /娱乐与景点分类型发牌/);
+  assert.doesNotMatch(page, /随机，但不是乱推/);
+  assert.match(page, /全城探索/);
+  assert.match(page, /候选范围/);
+  assert.match(page, /timeout: 20000/);
   assert.match(page, /这批没感觉/);
   assert.match(page, /strategy: "learn"/);
 });

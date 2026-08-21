@@ -13,6 +13,7 @@ export type CandidateMeta = {
   seed?: string;
   focused?: boolean;
   strategy?: "explore" | "focused" | "learn";
+  commuteWindow?: string;
 };
 
 export type StoredMember = {

@@ -28,23 +28,25 @@ export async function GET(request: Request) {
   const excludedIds = new Set((url.searchParams.get("exclude") || "").split(",").map((item) => item.replace(/^amap-/, "").trim()).filter(Boolean).slice(0, 40));
   const page = Math.min(5, Math.max(1, Number(url.searchParams.get("page")) || 1));
   const location = parseLocation(url.searchParams.get("location"));
+  const commuteWindow = parseCommuteWindow(url.searchParams.get("commute"));
+  const searchRadius = commuteRadius(commuteWindow);
   const key = process.env.AMAP_WEB_SERVICE_KEY;
-  if (!key) return demoResponse(city, kind, interests, seed, focused, strategy, "未配置高德 Web 服务 Key，当前展示带明确标识的演示候选。", 200);
+  if (!key) return demoResponse(city, kind, interests, seed, focused, strategy, location, commuteWindow, "未配置高德 Web 服务 Key，当前展示带明确标识的演示候选。", 200);
 
   try {
-    const resultSets = await Promise.all(interests.map((interest) => searchAmap({ key, city, kind, interest, location, page })));
+    const resultSets = await Promise.all(interests.map((interest) => searchAmap({ key, city, kind, interest, location, radius: searchRadius, page })));
     const candidates = diversify(resultSets, city, kind, avoidTokens, excludedIds, location).slice(0, 12);
     if (candidates.length < 4) throw new Error("Not enough usable POIs");
     return Response.json({
       candidates,
-      meta: { mode: "live", label: focused ? "按想法探索" : strategy === "learn" ? "根据划卡换一批" : "随机发现", fetchedAt: new Date().toISOString(), city, kind, keywords: interests, avoid: avoidTokens, page, center: location, seed, focused, strategy, disclaimer: focused ? "按你主动选择的类型召回，并保留类别多样性。" : strategy === "learn" ? "参考喜欢与不喜欢，仍保留新的跨类别发现。" : "跨类别随机发现；出发地只用于附近优先，不会锁死候选。" },
+      meta: { mode: "live", label: focused ? "按想法探索" : strategy === "learn" ? "根据划卡换一批" : "随机发现", fetchedAt: new Date().toISOString(), city, kind, keywords: interests, avoid: avoidTokens, page, center: location, seed, focused, strategy, commuteWindow, disclaimer: commuteWindow === "全城探索" ? "候选从全城分类型召回；出发地只用于通勤估算。" : `候选按${commuteWindow}的近似范围召回，最终仍以成员通勤底线过滤。` },
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
-    return demoResponse(city, kind, interests, seed, focused, strategy, "高德地点服务暂时不可用，已切换为演示候选。", 200);
+    return demoResponse(city, kind, interests, seed, focused, strategy, location, commuteWindow, "高德地点服务暂时不可用，已切换为演示候选。", 200);
   }
 }
 
-async function searchAmap(input: { key: string; city: CityName; kind: DecisionKind; interest: string; location: { lng: number; lat: number } | null; page: number }) {
+async function searchAmap(input: { key: string; city: CityName; kind: DecisionKind; interest: string; location: { lng: number; lat: number } | null; radius: number | null; page: number }) {
   const params = new URLSearchParams({
     key: input.key,
     keywords: input.interest,
@@ -54,15 +56,15 @@ async function searchAmap(input: { key: string; city: CityName; kind: DecisionKi
     output: "json",
   });
   if (input.kind === "dining") params.set("types", "050000");
-  if (input.location) {
+  if (input.location && input.radius !== null) {
     params.set("location", `${input.location.lng},${input.location.lat}`);
-    params.set("radius", "18000");
+    params.set("radius", String(input.radius));
     params.set("sortrule", "weight");
   } else {
     params.set("region", `${input.city}市`);
     params.set("city_limit", "true");
   }
-  const endpoint = input.location ? "around" : "text";
+  const endpoint = input.location && input.radius !== null ? "around" : "text";
   const response = await fetch(`https://restapi.amap.com/v5/place/${endpoint}?${params}`, { signal: AbortSignal.timeout(9000) });
   if (!response.ok) return { interest: input.interest, pois: [] as AmapPoi[] };
   const payload = await response.json() as { status?: string; pois?: AmapPoi[] };
@@ -147,13 +149,13 @@ function parseLocation(value: string | null) {
   return Number.isFinite(lng) && Number.isFinite(lat) && lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90 ? { lng, lat } : null;
 }
 
-function demoResponse(city: CityName, kind: DecisionKind, interests: string[], seed: string, focused: boolean, strategy: "explore" | "focused" | "learn", disclaimer: string, status: number) {
+function demoResponse(city: CityName, kind: DecisionKind, interests: string[], seed: string, focused: boolean, strategy: "explore" | "focused" | "learn", center: { lng: number; lat: number } | null, commuteWindow: string, disclaimer: string, status: number) {
   const matching = getDemoCandidates(city, kind).map((candidate) => ({ ...candidate, matchedInterest: candidate.type }));
   const filtered = focused ? matching.filter((candidate) => interests.some((interest) => candidate.type.includes(interest) || interest.includes(candidate.type))) : matching;
   const candidates = stableShuffle(focused && filtered.length > 0 ? filtered : matching, seed);
   return Response.json({
     candidates,
-    meta: { mode: "demo", label: focused ? "按想法探索 · 演示" : strategy === "learn" ? "根据划卡换一批 · 演示" : "随机发现 · 演示", fetchedAt: "2026-08-21T00:00:00.000Z", city, kind, keywords: interests, page: 1, center: null, seed, focused, strategy, disclaimer },
+    meta: { mode: "demo", label: focused ? "按想法探索 · 演示" : strategy === "learn" ? "根据划卡换一批 · 演示" : "随机发现 · 演示", fetchedAt: "2026-08-21T00:00:00.000Z", city, kind, keywords: interests, page: 1, center, seed, focused, strategy, commuteWindow, disclaimer },
   }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
@@ -167,6 +169,17 @@ function stableShuffle<T>(values: readonly T[], seed: string) {
     [result[index], result[swap]] = [result[swap], result[index]];
   }
   return result;
+}
+
+function parseCommuteWindow(value: string | null) {
+  return (["≤ 30 分钟", "≤ 45 分钟", "≤ 60 分钟"] as const).find((item) => item === value) || "全城探索";
+}
+
+function commuteRadius(value: string) {
+  if (value === "≤ 30 分钟") return 8_000;
+  if (value === "≤ 45 分钟") return 15_000;
+  if (value === "≤ 60 分钟") return 25_000;
+  return null;
 }
 
 function finiteNumber(value: string | undefined): number | null {
