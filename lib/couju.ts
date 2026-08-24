@@ -213,7 +213,7 @@ function demo(
 export function getDemoCandidates(city: CityName, kind: DecisionKind): Candidate[] {
   const profile = CITY_PROFILES[city];
   const templates = kind === "dining" ? diningTemplates : activityTemplates;
-  const inventory = DEMO_VARIANTS.flatMap((variant, index) => templates.map((item) => index === 0 ? item : {
+  const inventory = demoVariants(city).flatMap((variant, index) => templates.map((item) => index === 0 ? item : {
       ...item,
       id: `${item.id}-${index + 1}`,
       name: `${item.name} · ${variant}`,
@@ -240,7 +240,10 @@ export function getDemoCandidates(city: CityName, kind: DecisionKind): Candidate
   });
 }
 
-const DEMO_VARIANTS = ["本店", "静安店", "徐汇店", "长宁店", "黄浦店", "浦东店", "滨江店", "城市店", "艺文店", "夜场店", "周末店", "精选店"];
+function demoVariants(city: CityName) {
+  const districts = CITY_PROFILES[city].districts;
+  return ["本店", ...districts.map((district) => `${district}店`), `${city}中心店`, "艺文店", "夜场店", "周末店", "精选店", "旗舰店"];
+}
 
 function demoLocation(city: CityName, seed: string, travelMinutes: number) {
   const [centerLng, centerLat] = CITY_PROFILES[city].center;

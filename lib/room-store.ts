@@ -1,6 +1,7 @@
 import { getD1 } from "../db";
 import type { Candidate, Choice, PreferenceExtraction, RoomConfig } from "./couju";
 import { aggregateRoundFeedback, type RoundFeedback } from "./rounds";
+import { allCurrentMembersSubmitted } from "./round-api";
 
 export type CandidateMeta = {
   mode: "live" | "demo";
@@ -103,7 +104,7 @@ export type MemberAuth = {
 
 export type RoundMutationFailure = {
   ok: false;
-  code: "UNAUTHORIZED" | "STALE_ROUND" | "NOT_CREATOR" | "MAX_ROUNDS" | "INVALID_NOMINATION" | "INVALID_CANDIDATES";
+  code: "UNAUTHORIZED" | "STALE_ROUND" | "NOT_CREATOR" | "MAX_ROUNDS" | "INCOMPLETE_MEMBERS" | "INVALID_NOMINATION" | "INVALID_CANDIDATES";
 };
 
 export type RoundMutationResult =
@@ -288,19 +289,21 @@ export async function advanceStoredRound(input: MemberAuth & { expectedRound: nu
   if (!creator || creator.id !== input.memberId) return { ok: false, code: "NOT_CREATOR" };
   if (!room || room.current_round !== input.expectedRound) return { ok: false, code: "STALE_ROUND" };
   if (room.current_round >= 3) return { ok: false, code: "MAX_ROUNDS" };
+  const roundMembers = await readRoundMembers(input.roomCode);
+  if (!allCurrentMembersSubmitted(roundMembers)) return { ok: false, code: "INCOMPLETE_MEMBERS" };
 
   const now = new Date().toISOString();
   const nextRound = room.current_round + 1;
   const currentCandidates = safeJson<Candidate[]>(room.candidates_json, []);
   const feedback = serializeRoundFeedback(aggregateRoundFeedback(
     currentCandidates,
-    await readRoundMembers(input.roomCode),
+    roundMembers,
   ));
   const history = safeJson<RoundHistoryEntry[]>(room.round_history_json, []);
   const nextHistory = [...history, {
     round: room.current_round,
     candidateIds: currentCandidates.map((candidate) => candidate.id),
-    categories: [...new Set(currentCandidates.map((candidate) => candidate.type))],
+    categories: [...new Set(currentCandidates.map((candidate) => candidate.matchedInterest || candidate.type))],
     feedback,
     privateRejectedCandidateIds: await readPrivateRejectedCandidateIds(input.roomCode),
     reason: input.reason,

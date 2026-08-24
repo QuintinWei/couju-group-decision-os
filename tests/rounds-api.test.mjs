@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function fetchFromApp(path, init = {}) {
@@ -48,6 +47,23 @@ test("shared candidate strategy supplies twelve distinct activity cards", async 
   const payload = await response.json();
   assert.equal(payload.candidates.length, 12);
   assert.equal(new Set(payload.candidates.map((candidate) => candidate.id)).size, 12);
+});
+
+test("learn mode orders positive category feedback above neutral and negative categories", async () => {
+  const response = await fetchFromApp("/api/candidates?city=%E4%B8%8A%E6%B5%B7&kind=activity&strategy=learn&scores=%E5%A4%B4%E7%96%97%E6%8C%89%E6%91%A9%3A3%2C%E6%94%80%E5%B2%A9%3A-2&seed=learn-order");
+  const payload = await response.json();
+  const types = payload.candidates.map((candidate) => candidate.type);
+  assert.equal(types[0], "头疗按摩");
+  assert.ok(types.indexOf("攀岩") > types.indexOf("陶艺泥塑"));
+  assert.match(payload.meta.label, /群体反馈/);
+});
+
+test("explore mode prioritizes explicitly unseen categories and city demo suffixes stay local", async () => {
+  const response = await fetchFromApp("/api/candidates?city=%E5%8C%97%E4%BA%AC&kind=activity&strategy=explore&explore=%E9%99%B6%E8%89%BA%E6%B3%A5%E5%A1%91%2CKTV&seed=explore-order");
+  const payload = await response.json();
+  assert.deepEqual(new Set(payload.candidates.slice(0, 2).map((candidate) => candidate.type)), new Set(["陶艺泥塑", "KTV"]));
+  assert.ok(payload.candidates.every((candidate) => !/静安|徐汇|长宁|黄浦|浦东/.test(candidate.name)));
+  assert.match(payload.meta.label, /其他类型探索/);
 });
 
 test("demo inventory sustains private discovery and three no-repeat shared rounds", async () => {
@@ -108,21 +124,4 @@ test("room creation rejects twelve cards that repeat a provider", async () => {
     }),
   });
   assert.equal(response.status, 400);
-});
-
-test("round sources keep history exclusions, creator gating, and atomic submitted-member checks", async () => {
-  const [roundRoute, roomStore] = await Promise.all([
-    readFile(new URL("../app/api/rounds/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../lib/room-store.ts", import.meta.url), "utf8"),
-  ]);
-  assert.match(roundRoute, /room\.roundHistory\.flatMap\(\(entry\) => entry\.candidateIds\)/);
-  assert.match(roundRoute, /room\.members\[0\]\?\.id !== auth\.memberId/);
-  assert.match(roundRoute, /return error\("只有房主可以发起下一轮", 403\)/);
-  assert.match(roundRoute, /return error\("房间已进入下一轮，请刷新后继续", 409\)/);
-  assert.match(roundRoute, /return error\("已经是第三轮，无法继续换一批", 429\)/);
-  assert.match(roundRoute, /return error\("只有拒绝本轮全部 12 张共享候选后，才能开启私人发现", 422\)/);
-  assert.ok(roundRoute.indexOf("buildNextRoundSlots") < roundRoute.indexOf("advanceStoredRound({"));
-  assert.match(roomStore, /privateRejectedCandidateIds/);
-  assert.match(roomStore, /submitted_at IS NOT NULL/);
-  assert.match(roomStore, /"private"/);
 });

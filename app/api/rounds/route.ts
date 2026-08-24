@@ -1,6 +1,7 @@
 import { GET as getCandidates } from "../candidates/route";
 import { DEFAULT_INTERESTS, type Candidate } from "../../../lib/couju";
-import { aggregateRoundFeedback, buildNextRoundSlots, canRequestPrivateDiscovery, RoundCompositionError } from "../../../lib/rounds";
+import { aggregateRoundFeedback, buildNextRoundSlots, RoundCompositionError } from "../../../lib/rounds";
+import { evaluateAdvanceGate, evaluatePrivateDiscoveryGate, validateRoundActionPayload } from "../../../lib/round-api";
 import type { CandidateMeta, RoundMutationFailure, StoredMember, StoredRoom } from "../../../lib/room-store";
 
 export const dynamic = "force-dynamic";
@@ -16,11 +17,13 @@ export async function POST(request: Request) {
     return error("请求内容无效", 400);
   }
 
+  const payloadValidation = validateRoundActionPayload(body);
+  if (!payloadValidation.ok) return error("成员身份、轮次或请求参数无效", payloadValidation.status);
+
   const action = parseAction(body.action);
   const auth = parseMemberAuth(body);
   const expectedRound = parseRound(body.expectedRound);
   if (!action || !auth || expectedRound === null) return error("成员身份或轮次无效", 400);
-  if (action === "request" && body.requested !== undefined && typeof body.requested !== "boolean") return error("换一批请求必须是布尔值", 400);
 
   try {
     if (action === "request") return handleRequest(auth, expectedRound, body);
@@ -57,7 +60,8 @@ async function handlePrivateDiscovery(request: Request, auth: MemberAuth, expect
   if (!member) return error("成员身份已失效，请重新加入", 403);
 
   const candidateIds = room.candidates.map((candidate) => candidate.id);
-  if (!canRequestPrivateDiscovery(candidateIds, member.choices)) {
+  const privateGate = evaluatePrivateDiscoveryGate(candidateIds, member.choices);
+  if (!privateGate.ok) {
     return error("只有拒绝本轮全部 12 张共享候选后，才能开启私人发现", 422);
   }
   if (member.privateCandidates.length === 3) {
@@ -97,29 +101,25 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
   const { advanceStoredRound, getAuthenticatedStoredRoom } = await loadRoomStore();
   const room = await getAuthenticatedStoredRoom(auth);
   if (!room) return error("成员身份已失效，请重新加入", 403);
-  if (room.members[0]?.id !== auth.memberId) return error("只有房主可以发起下一轮", 403);
-  if (room.currentRound !== expectedRound) return error("房间已进入下一轮，请刷新后继续", 409);
-  if (room.currentRound >= 3) return error("已经是第三轮，无法继续换一批", 429);
-  if (room.members.length === 0 || room.members.some((member) => !member.submittedAt)) {
-    return error("所有已加入成员提交本轮选择后，房主才能换一批", 409);
-  }
-  if (room.candidates.length !== 12 || !hasUniqueProviderIds(room.candidates)) {
-    return error("本轮共享候选不完整，无法安全生成下一轮", 422);
-  }
+  const advanceGate = evaluateAdvanceGate(room, auth.memberId, expectedRound);
+  if (!advanceGate.ok) return advanceGateResponse(advanceGate.code, advanceGate.status);
 
   const feedback = aggregateRoundFeedback(room.candidates, room.members);
   const nominations = validNominations(room.members);
   const excludedIds = new Set<string>([
     ...room.candidates.map((candidate) => candidate.source.providerId || candidate.id),
     ...room.roundHistory.flatMap((entry) => entry.candidateIds),
+    ...room.roundHistory.flatMap((entry) => entry.privateRejectedCandidateIds ?? []),
     ...feedback.rejectedCandidateIds,
     ...room.roundHistory.flatMap((entry) => entry.feedback.rejectedCandidateIds),
   ]);
-  const learnedInterests = [...new Set(room.candidates
-    .filter((candidate) => (feedback.categoryScores.get(candidate.type) ?? 0) > 0)
-    .map((candidate) => candidate.matchedInterest || candidate.type)
-    .filter((category) => DEFAULT_INTERESTS[room.config.kind].includes(category as never)))]
+  const learnedScores = aggregateInterestScores(room, feedback);
+  const learnedInterests = [...learnedScores.entries()]
+    .filter(([, score]) => score > 0)
+    .sort((left, right) => right[1] - left[1])
+    .map(([category]) => category)
     .slice(0, 6);
+  const exploreInterests = explorationInterests(room, new Set(learnedInterests));
   const nominationIds = nominations.map((candidate) => candidate.source.providerId || candidate.id);
   const sharedExclude = [...new Set([...excludedIds, ...nominationIds])];
   const exploration = await fetchCandidateBatch(request, {
@@ -127,7 +127,7 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
     kind: room.config.kind,
     strategy: "explore",
     exclude: sharedExclude,
-    unseen: unseenCategories(room),
+    explore: exploreInterests,
     seed: `explore:${room.code}:${room.currentRound}`,
   });
   const reservedExploration = exploration.candidates.slice(0, 4);
@@ -137,6 +137,7 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
     strategy: "learn",
     exclude: [...sharedExclude, ...reservedExploration.map((candidate) => candidate.source.providerId || candidate.id)],
     interests: learnedInterests,
+    scores: learnedScores,
     seed: `learn:${room.code}:${room.currentRound}`,
   });
 
@@ -169,6 +170,8 @@ type CandidateRequest = {
   exclude?: Iterable<string>;
   unseen?: Iterable<string>;
   interests?: string[];
+  scores?: Map<string, number>;
+  explore?: Iterable<string>;
   setting?: string;
   location?: { lng: number; lat: number } | null;
   budget?: string;
@@ -192,6 +195,11 @@ async function fetchCandidateBatch(request: Request, input: CandidateRequest): P
   if (exclude.length) url.searchParams.set("exclude", exclude.join(","));
   if (unseen.length) url.searchParams.set("unseen", unseen.join(","));
   if (input.interests?.length) url.searchParams.set("interests", input.interests.join(","));
+  if (input.scores?.size) url.searchParams.set("scores", [...input.scores.entries()].map(([category, score]) => `${category}:${score}`).join(","));
+  if (input.explore) {
+    const explore = [...input.explore].filter(Boolean);
+    if (explore.length) url.searchParams.set("explore", explore.join(","));
+  }
   if (input.setting) url.searchParams.set("setting", input.setting);
   if (input.location) url.searchParams.set("location", `${input.location.lng},${input.location.lat}`);
   if (input.budget) url.searchParams.set("budget", input.budget);
@@ -222,10 +230,40 @@ function collectExcludedIds(room: StoredRoom, member: StoredMember) {
 
 function unseenCategories(room: StoredRoom) {
   const seen = new Set([
-    ...room.roundHistory.flatMap((entry) => entry.categories),
-    ...room.candidates.map((candidate) => candidate.type),
+    ...room.roundHistory.flatMap((entry) => entry.categories.map((category) => normalizeCategory(room.config.kind, category)).filter((category): category is string => Boolean(category))),
+    ...room.candidates.map((candidate) => candidateCategory(room.config.kind, candidate)).filter((category): category is string => Boolean(category)),
   ]);
   return DEFAULT_INTERESTS[room.config.kind].filter((category) => !seen.has(category));
+}
+
+function aggregateInterestScores(room: StoredRoom, feedback: ReturnType<typeof aggregateRoundFeedback>) {
+  const typeCategories = new Map<string, string>();
+  for (const candidate of room.candidates) {
+    const category = candidateCategory(room.config.kind, candidate);
+    if (category && !typeCategories.has(candidate.type)) typeCategories.set(candidate.type, category);
+  }
+  const scores = new Map<string, number>();
+  for (const [type, score] of feedback.categoryScores) {
+    const category = typeCategories.get(type) ?? normalizeCategory(room.config.kind, type);
+    if (!category) continue;
+    scores.set(category, (scores.get(category) ?? 0) + score);
+  }
+  return scores;
+}
+
+function explorationInterests(room: StoredRoom, learned: Set<string>) {
+  const unseen = unseenCategories(room).filter((category) => !learned.has(category));
+  return unseen.length ? unseen : DEFAULT_INTERESTS[room.config.kind].filter((category) => !learned.has(category));
+}
+
+function candidateCategory(kind: StoredRoom["config"]["kind"], candidate: Candidate) {
+  return candidate.matchedInterest && DEFAULT_INTERESTS[kind].includes(candidate.matchedInterest as never)
+    ? candidate.matchedInterest
+    : normalizeCategory(kind, candidate.type);
+}
+
+function normalizeCategory(kind: StoredRoom["config"]["kind"], value: string) {
+  return DEFAULT_INTERESTS[kind].find((category) => category === value || value.includes(category) || category.includes(value)) ?? null;
 }
 
 function interestsFromMember(room: StoredRoom, member: StoredMember) {
@@ -288,7 +326,7 @@ function mutationResponse(result: { ok: true; currentRound: number } | RoundMuta
   if (result.ok) return Response.json({ ok: true, currentRound: result.currentRound }, { headers: noStore });
   const status = result.code === "UNAUTHORIZED" || result.code === "NOT_CREATOR" ? 403
     : result.code === "MAX_ROUNDS" ? 429
-      : result.code === "STALE_ROUND" ? 409
+      : result.code === "STALE_ROUND" || result.code === "INCOMPLETE_MEMBERS" ? 409
         : 422;
   return error(mutationMessage(result.code), status);
 }
@@ -298,6 +336,7 @@ function mutationMessage(code: RoundMutationFailure["code"]) {
   if (code === "NOT_CREATOR") return "只有房主可以发起下一轮";
   if (code === "MAX_ROUNDS") return "已经是第三轮，无法继续换一批";
   if (code === "STALE_ROUND") return "房间已更新，请刷新后继续";
+  if (code === "INCOMPLETE_MEMBERS") return "所有已加入成员提交本轮选择后，房主才能换一批";
   if (code === "INVALID_NOMINATION") return "只能提名自己的私人发现卡";
   return "候选数据无效，无法更新轮次";
 }
@@ -312,4 +351,12 @@ const noStore = { "Cache-Control": "no-store" };
 
 async function loadRoomStore() {
   return import("../../../lib/room-store");
+}
+
+function advanceGateResponse(code: string, status: number) {
+  if (code === "NOT_CREATOR") return error("只有房主可以发起下一轮", status);
+  if (code === "STALE_ROUND") return error("房间已进入下一轮，请刷新后继续", status);
+  if (code === "MAX_ROUNDS") return error("已经是第三轮，无法继续换一批", status);
+  if (code === "INCOMPLETE_MEMBERS") return error("所有已加入成员提交本轮选择后，房主才能换一批", status);
+  return error("本轮共享候选不完整，无法安全生成下一轮", status);
 }

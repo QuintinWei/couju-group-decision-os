@@ -27,27 +27,31 @@ export async function GET(request: Request) {
   if (privateMode && requestedLimit !== 3) return Response.json({ error: "私人发现固定返回三张候选" }, { status: 400 });
   const targetCount = privateMode ? 3 : 12;
   const focused = strategy === "focused" && requested.length > 0;
-  const interests = [...new Set(focused ? requested : [...requested, ...discoveryPool])].slice(0, kind === "activity" ? 8 : 7);
   const avoidTokens = (url.searchParams.get("avoid") || "").split(/[\s,，、;；]+/).map((item) => item.trim()).filter((item) => item.length >= 2).slice(0, 8);
   const excludedIds = new Set((url.searchParams.get("exclude") || "").split(",").map((item) => item.replace(/^amap-/, "").trim()).filter(Boolean).slice(0, 120));
   const unseenTypes = new Set((url.searchParams.get("unseen") || "").split(",").map((item) => item.trim()).filter(Boolean).slice(0, 20));
+  const requestedExploreTypes = new Set((url.searchParams.get("explore") || "").split(",").map((item) => item.trim()).filter((item) => allowed.has(item)).slice(0, 20));
+  const explorationTypes = requestedExploreTypes.size ? requestedExploreTypes : unseenTypes;
+  const learnedScores = parseLearnedScores(url.searchParams.get("scores"), allowed);
+  const strategyInterests = strategy === "learn" ? [...learnedScores.keys(), ...requested] : strategy === "explore" ? [...explorationTypes, ...requested] : requested;
+  const interests = [...new Set(focused ? requested : [...strategyInterests, ...discoveryPool])].slice(0, kind === "activity" ? 8 : 7);
   const setting = url.searchParams.get("setting")?.trim().slice(0, 24) || "";
   const page = Math.min(5, Math.max(1, Number(url.searchParams.get("page")) || 1));
   const location = parseLocation(url.searchParams.get("location"));
   const privateRanking = privateMode ? parsePrivateRanking(url, city, kind, location, setting) : null;
   const key = process.env.AMAP_WEB_SERVICE_KEY;
-  if (!key) return demoResponse(city, kind, interests, seed, focused, strategy, location, excludedIds, targetCount, setting, unseenTypes, privateRanking, "未配置高德 Web 服务 Key，当前展示带明确标识的演示候选。", 200);
+  if (!key) return demoResponse(city, kind, interests, seed, focused, strategy, location, excludedIds, targetCount, setting, explorationTypes, learnedScores, privateRanking, "未配置高德 Web 服务 Key，当前展示带明确标识的演示候选。", 200);
 
   try {
     const resultSets = await Promise.all(interests.map((interest) => searchAmap({ key, city, kind, interest, page })));
-    const candidates = prioritizeStrategy(diversify(resultSets, city, kind, avoidTokens, excludedIds, location), strategy, interests, unseenTypes, privateRanking).slice(0, targetCount);
+    const candidates = prioritizeStrategy(diversify(resultSets, city, kind, avoidTokens, excludedIds, location), strategy, interests, explorationTypes, learnedScores, privateRanking).slice(0, targetCount);
     if (candidates.length !== targetCount || !hasUniqueProviderIds(candidates)) throw new Error("Not enough usable POIs");
     return Response.json({
       candidates,
-      meta: { mode: "live", label: candidateLabel({ focused, strategy, mode: "live", hasUnseenPriority: unseenTypes.size > 0 }), fetchedAt: new Date().toISOString(), city, kind, keywords: interests, avoid: avoidTokens, page, center: location, seed, focused, strategy, disclaimer: "候选从全城分类型召回；每位成员的出发地与通勤上限只在最终计算时单独过滤。" },
+      meta: { mode: "live", label: candidateLabel({ focused, strategy, mode: "live", hasUnseenPriority: unseenTypes.size > 0, hasExplorationPriority: requestedExploreTypes.size > 0, hasFeedback: learnedScores.size > 0 }), fetchedAt: new Date().toISOString(), city, kind, keywords: interests, avoid: avoidTokens, page, center: location, seed, focused, strategy, disclaimer: "候选从全城分类型召回；每位成员的出发地与通勤上限只在最终计算时单独过滤。" },
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
-    return demoResponse(city, kind, interests, seed, focused, strategy, location, excludedIds, targetCount, setting, unseenTypes, privateRanking, "高德地点服务暂时不可用，已切换为演示候选。", 200);
+    return demoResponse(city, kind, interests, seed, focused, strategy, location, excludedIds, targetCount, setting, explorationTypes, learnedScores, privateRanking, "高德地点服务暂时不可用，已切换为演示候选。", 200);
   }
 }
 
@@ -147,17 +151,17 @@ function parseLocation(value: string | null) {
   return Number.isFinite(lng) && Number.isFinite(lat) && lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90 ? { lng, lat } : null;
 }
 
-function demoResponse(city: CityName, kind: DecisionKind, interests: string[], seed: string, focused: boolean, strategy: CandidateStrategy, center: { lng: number; lat: number } | null, excludedIds: Set<string>, targetCount: number, setting: string, unseenTypes: Set<string>, privateRanking: PrivateRankingInput | null, disclaimer: string, status: number) {
+function demoResponse(city: CityName, kind: DecisionKind, interests: string[], seed: string, focused: boolean, strategy: CandidateStrategy, center: { lng: number; lat: number } | null, excludedIds: Set<string>, targetCount: number, setting: string, explorationTypes: Set<string>, learnedScores: Map<string, number>, privateRanking: PrivateRankingInput | null, disclaimer: string, status: number) {
   const matching = getDemoCandidates(city, kind).map((candidate) => ({ ...candidate, matchedInterest: candidate.type }));
   const focusedCandidates = focused ? matching.filter((candidate) => interests.some((interest) => matchesInterest(candidate, [interest]))) : matching;
   const unexcluded = focusedCandidates.filter((candidate) => !excludedIds.has(candidate.id) && !excludedIds.has(candidate.source.providerId || candidate.id));
   const shuffled = stableShuffle(unexcluded, seed);
-  const prioritized = prioritizeStrategy(shuffled, strategy, interests, unseenTypes, privateRanking ?? (strategy === "private" ? defaultPrivateRanking(city, kind, center, setting) : null));
+  const prioritized = prioritizeStrategy(shuffled, strategy, interests, explorationTypes, learnedScores, privateRanking ?? (strategy === "private" ? defaultPrivateRanking(city, kind, center, setting) : null));
   const candidates = strategy === "private" ? prioritized.slice(0, targetCount) : takeDiverseCandidates(prioritized, targetCount);
   if (candidates.length !== targetCount || !hasUniqueProviderIds(candidates)) return Response.json({ error: strategy === "private" ? "私人发现候选不足，请稍后再试" : "共享候选不足 12 张，请稍后再试" }, { status: 422, headers: { "Cache-Control": "no-store" } });
   return Response.json({
     candidates,
-    meta: { mode: "demo", label: candidateLabel({ focused, strategy, mode: "demo", hasUnseenPriority: unseenTypes.size > 0 }), fetchedAt: "2026-08-21T00:00:00.000Z", city, kind, keywords: interests, page: 1, center, seed, focused, strategy, disclaimer },
+    meta: { mode: "demo", label: candidateLabel({ focused, strategy, mode: "demo", hasUnseenPriority: false, hasExplorationPriority: explorationTypes.size > 0, hasFeedback: learnedScores.size > 0 }), fetchedAt: "2026-08-21T00:00:00.000Z", city, kind, keywords: interests, page: 1, center, seed, focused, strategy, disclaimer },
   }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
@@ -168,8 +172,8 @@ function parseStrategy(value: string | null): CandidateStrategy {
   return "explore";
 }
 
-function candidateLabel(input: { focused: boolean; strategy: CandidateStrategy; mode: "live" | "demo"; hasUnseenPriority: boolean }) {
-  const base = input.strategy === "private" ? "私人发现" : input.focused ? "按想法探索" : input.strategy === "learn" ? "根据结果换一批" : input.hasUnseenPriority ? "按未探索类型发现" : "随机发现";
+function candidateLabel(input: { focused: boolean; strategy: CandidateStrategy; mode: "live" | "demo"; hasUnseenPriority: boolean; hasExplorationPriority: boolean; hasFeedback: boolean }) {
+  const base = input.strategy === "private" ? "私人发现" : input.focused ? "按想法探索" : input.strategy === "learn" ? input.hasFeedback ? "按群体反馈探索" : "根据结果换一批" : input.hasUnseenPriority ? "按未探索类型发现" : input.hasExplorationPriority ? "按其他类型探索" : "随机发现";
   return input.mode === "demo" ? `${base} · 演示` : base;
 }
 
@@ -200,10 +204,10 @@ function defaultPrivateRanking(city: CityName, kind: DecisionKind, originLocatio
   return parsePrivateRanking(new URL(`https://couju.local/?setting=${encodeURIComponent(setting)}`), city, kind, originLocation, setting);
 }
 
-function prioritizeStrategy(candidates: Candidate[], strategy: CandidateStrategy, interests: string[], unseenTypes: Set<string>, privateRanking: PrivateRankingInput | null) {
-  if (strategy === "private" && privateRanking) return prioritizePrivate(candidates, unseenTypes, privateRanking);
-  if (strategy === "learn") return prioritizeCategories(candidates, interests);
-  if (strategy === "explore") return prioritizeUnseen(candidates, unseenTypes);
+function prioritizeStrategy(candidates: Candidate[], strategy: CandidateStrategy, interests: string[], explorationTypes: Set<string>, learnedScores: Map<string, number>, privateRanking: PrivateRankingInput | null) {
+  if (strategy === "private" && privateRanking) return prioritizePrivate(candidates, explorationTypes, privateRanking);
+  if (strategy === "learn") return prioritizeLearned(candidates, learnedScores, interests);
+  if (strategy === "explore") return prioritizeUnseen(candidates, explorationTypes);
   return candidates;
 }
 
@@ -216,8 +220,8 @@ function prioritizePrivate(candidates: Candidate[], unseenTypes: Set<string>, in
   return [...ranked].sort((left, right) => Number(isUnseen(right, unseenTypes)) - Number(isUnseen(left, unseenTypes)) || right.groupFit - left.groupFit);
 }
 
-function prioritizeCategories(candidates: Candidate[], interests: string[]) {
-  return [...candidates].sort((left, right) => Number(matchesInterest(right, interests)) - Number(matchesInterest(left, interests)));
+function prioritizeLearned(candidates: Candidate[], learnedScores: Map<string, number>, interests: string[]) {
+  return [...candidates].sort((left, right) => learnedScore(right, learnedScores, interests) - learnedScore(left, learnedScores, interests));
 }
 
 function prioritizeUnseen(candidates: Candidate[], unseenTypes: Set<string>) {
@@ -246,11 +250,30 @@ function takeDiverseCandidates(candidates: Candidate[], targetCount: number) {
 }
 
 function matchesInterest(candidate: Candidate, interests: string[]) {
-  return interests.some((interest) => candidate.type.includes(interest) || interest.includes(candidate.type));
+  return interests.some((interest) => [candidate.matchedInterest, candidate.type].some((category) => Boolean(category && (category.includes(interest) || interest.includes(category)))));
 }
 
 function isUnseen(candidate: Candidate, unseenTypes: Set<string>) {
   return unseenTypes.has(candidate.type) || Boolean(candidate.matchedInterest && unseenTypes.has(candidate.matchedInterest));
+}
+
+function learnedScore(candidate: Candidate, scores: Map<string, number>, interests: string[]) {
+  const category = candidate.matchedInterest || candidate.type;
+  if (scores.has(category)) return scores.get(category) ?? 0;
+  return matchesInterest(candidate, interests) ? 0.1 : 0;
+}
+
+function parseLearnedScores(value: string | null, allowed: Set<string>) {
+  const scores = new Map<string, number>();
+  for (const item of (value || "").split(",").slice(0, 20)) {
+    const separator = item.lastIndexOf(":");
+    if (separator < 1) continue;
+    const category = item.slice(0, separator).trim();
+    const score = Number(item.slice(separator + 1));
+    if (!allowed.has(category) || !Number.isFinite(score)) continue;
+    scores.set(category, score);
+  }
+  return scores;
 }
 
 function hasUniqueProviderIds(candidates: Candidate[]) {
