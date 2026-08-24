@@ -1,8 +1,8 @@
 export type Stage = "home" | "create" | "join" | "room" | "swipe" | "constraints" | "ranking" | "results" | "locked";
 export type Choice = "no" | "okay" | "like";
 
-export function canRefreshCandidates(isCreator: boolean, completedChoices: number) {
-  return isCreator && completedChoices >= 3;
+export function canRefreshCandidates(isCreator: boolean, stage: Stage, hasResult: boolean) {
+  return isCreator && stage === "results" && hasResult;
 }
 
 export type DecisionKind = "activity" | "dining";

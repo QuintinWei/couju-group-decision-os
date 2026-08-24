@@ -44,10 +44,11 @@ test("veto exclusion removes the current winner and recalculates", () => {
   assert.notEqual(second[0]?.id, first[0].id);
 });
 
-test("room refresh stays hidden until the creator has rated three candidates", () => {
+test("candidate refresh is available only to the creator after a result exists", () => {
   assert.equal(typeof canRefreshCandidates, "function");
-  assert.equal(canRefreshCandidates(true, 0), false);
-  assert.equal(canRefreshCandidates(true, 2), false);
-  assert.equal(canRefreshCandidates(true, 3), true);
-  assert.equal(canRefreshCandidates(false, 12), false);
+  assert.equal(canRefreshCandidates(true, "room", true), false);
+  assert.equal(canRefreshCandidates(true, "swipe", true), false);
+  assert.equal(canRefreshCandidates(true, "results", false), false);
+  assert.equal(canRefreshCandidates(true, "results", true), true);
+  assert.equal(canRefreshCandidates(false, "results", true), false);
 });
