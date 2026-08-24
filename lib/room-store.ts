@@ -174,6 +174,12 @@ export async function getStoredRoom(code: string): Promise<StoredRoom | null> {
   };
 }
 
+export async function getAuthenticatedStoredRoom(input: MemberAuth): Promise<StoredRoom | null> {
+  const member = await authenticateMember(input);
+  if (!member) return null;
+  return getStoredRoom(input.roomCode);
+}
+
 export async function joinStoredRoom(code: string, name: string, origin: string, originLocation: { lng: number; lat: number } | null) {
   const room = await getStoredRoom(code);
   if (!room) return null;

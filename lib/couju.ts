@@ -159,6 +159,9 @@ const activityTemplates: DemoTemplate[] = [
   demo("murder", "activity", "剧本杀", "谜盒沉浸剧场", "多人推理 · 主题需确认", "/candidates/activity-escape.jpg", 168, 240, 28, { indoor: true, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
   demo("mahjong", "activity", "麻将棋牌", "碰面棋牌空间", "独立包间 · 自动麻将桌", "/candidates/activity-boardgame.jpg", 88, 180, 20, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
   demo("scenic", "activity", "景点", "城市文化漫游线", "展馆与街区 · 适合周末慢慢逛", "/candidates/activity-camp.jpg", 98, 180, 24, { indoor: null, quiet: true, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
+  demo("boardgame", "activity", "桌游", "桌游社交空间", "策略桌游 · 新手可教学", "/candidates/activity-boardgame.jpg", 108, 180, 25, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "low" }),
+  demo("escape", "activity", "密室逃脱", "边界密室体验馆", "沉浸主题 · 建议提前预约", "/candidates/activity-escape.jpg", 178, 150, 29, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "medium" }),
+  demo("bowling", "activity", "保龄球", "全垒打保龄球馆", "球道体验 · 适合小组互动", "/candidates/activity-climb.jpg", 118, 120, 27, { indoor: true, quiet: false, conversationFriendly: true, nonSpicyAvailable: null, queueRisk: "medium" }),
 ];
 
 const diningTemplates: DemoTemplate[] = [

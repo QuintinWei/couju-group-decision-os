@@ -21,26 +21,32 @@ export async function GET(request: Request) {
   const requested = (url.searchParams.get("interests") || "").split(",").map((item) => item.trim()).filter((item) => allowed.has(item));
   const seed = (url.searchParams.get("seed") || crypto.randomUUID()).slice(0, 80);
   const discoveryPool = stableShuffle(DEFAULT_INTERESTS[kind], seed);
-  const strategy = url.searchParams.get("strategy") === "focused" ? "focused" : url.searchParams.get("strategy") === "learn" ? "learn" : "explore";
+  const strategy = parseStrategy(url.searchParams.get("strategy"));
+  const privateMode = strategy === "private";
+  const requestedLimit = Number(url.searchParams.get("limit"));
+  if (privateMode && requestedLimit !== 3) return Response.json({ error: "私人发现固定返回三张候选" }, { status: 400 });
+  const targetCount = privateMode ? 3 : 12;
   const focused = strategy === "focused" && requested.length > 0;
   const interests = [...new Set(focused ? requested : [...requested, ...discoveryPool])].slice(0, kind === "activity" ? 8 : 7);
   const avoidTokens = (url.searchParams.get("avoid") || "").split(/[\s,，、;；]+/).map((item) => item.trim()).filter((item) => item.length >= 2).slice(0, 8);
   const excludedIds = new Set((url.searchParams.get("exclude") || "").split(",").map((item) => item.replace(/^amap-/, "").trim()).filter(Boolean).slice(0, 40));
+  const unseenTypes = new Set((url.searchParams.get("unseen") || "").split(",").map((item) => item.trim()).filter(Boolean).slice(0, 20));
+  const setting = url.searchParams.get("setting")?.trim().slice(0, 24) || "";
   const page = Math.min(5, Math.max(1, Number(url.searchParams.get("page")) || 1));
   const location = parseLocation(url.searchParams.get("location"));
   const key = process.env.AMAP_WEB_SERVICE_KEY;
-  if (!key) return demoResponse(city, kind, interests, seed, focused, strategy, location, "未配置高德 Web 服务 Key，当前展示带明确标识的演示候选。", 200);
+  if (!key) return demoResponse(city, kind, interests, seed, focused, strategy, location, excludedIds, targetCount, setting, unseenTypes, "未配置高德 Web 服务 Key，当前展示带明确标识的演示候选。", 200);
 
   try {
     const resultSets = await Promise.all(interests.map((interest) => searchAmap({ key, city, kind, interest, page })));
-    const candidates = diversify(resultSets, city, kind, avoidTokens, excludedIds, location).slice(0, 12);
-    if (candidates.length < 4) throw new Error("Not enough usable POIs");
+    const candidates = diversify(resultSets, city, kind, avoidTokens, excludedIds, location).slice(0, targetCount);
+    if (candidates.length < (privateMode ? 3 : focused ? 4 : targetCount)) throw new Error("Not enough usable POIs");
     return Response.json({
       candidates,
-      meta: { mode: "live", label: focused ? "按想法探索" : strategy === "learn" ? "根据结果换一批" : "随机发现", fetchedAt: new Date().toISOString(), city, kind, keywords: interests, avoid: avoidTokens, page, center: location, seed, focused, strategy, disclaimer: "候选从全城分类型召回；每位成员的出发地与通勤上限只在最终计算时单独过滤。" },
+      meta: { mode: "live", label: candidateLabel({ focused, strategy, mode: "live" }), fetchedAt: new Date().toISOString(), city, kind, keywords: interests, avoid: avoidTokens, page, center: location, seed, focused, strategy, disclaimer: "候选从全城分类型召回；每位成员的出发地与通勤上限只在最终计算时单独过滤。" },
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
-    return demoResponse(city, kind, interests, seed, focused, strategy, location, "高德地点服务暂时不可用，已切换为演示候选。", 200);
+    return demoResponse(city, kind, interests, seed, focused, strategy, location, excludedIds, targetCount, setting, unseenTypes, "高德地点服务暂时不可用，已切换为演示候选。", 200);
   }
 }
 
@@ -140,14 +146,48 @@ function parseLocation(value: string | null) {
   return Number.isFinite(lng) && Number.isFinite(lat) && lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90 ? { lng, lat } : null;
 }
 
-function demoResponse(city: CityName, kind: DecisionKind, interests: string[], seed: string, focused: boolean, strategy: "explore" | "focused" | "learn", center: { lng: number; lat: number } | null, disclaimer: string, status: number) {
+function demoResponse(city: CityName, kind: DecisionKind, interests: string[], seed: string, focused: boolean, strategy: CandidateStrategy, center: { lng: number; lat: number } | null, excludedIds: Set<string>, targetCount: number, setting: string, unseenTypes: Set<string>, disclaimer: string, status: number) {
   const matching = getDemoCandidates(city, kind).map((candidate) => ({ ...candidate, matchedInterest: candidate.type }));
   const focusedCandidates = focused ? matching.filter((candidate) => interests.some((interest) => candidate.type.includes(interest) || interest.includes(candidate.type))) : matching;
-  const candidates = stableShuffle(focusedCandidates, seed);
+  const unexcluded = focusedCandidates.filter((candidate) => !excludedIds.has(candidate.id) && !excludedIds.has(candidate.source.providerId || candidate.id));
+  const shuffled = stableShuffle(unexcluded, seed);
+  const candidates = strategy === "private"
+    ? prioritizePrivate(shuffled, interests, setting, unseenTypes).slice(0, targetCount)
+    : shuffled.slice(0, targetCount);
+  if (strategy === "private" && candidates.length !== 3) return Response.json({ error: "私人发现候选不足，请稍后再试" }, { status: 422, headers: { "Cache-Control": "no-store" } });
   return Response.json({
     candidates,
-    meta: { mode: "demo", label: focused ? "按想法探索 · 演示" : strategy === "learn" ? "根据结果换一批 · 演示" : "随机发现 · 演示", fetchedAt: "2026-08-21T00:00:00.000Z", city, kind, keywords: interests, page: 1, center, seed, focused, strategy, disclaimer },
+    meta: { mode: "demo", label: candidateLabel({ focused, strategy, mode: "demo" }), fetchedAt: "2026-08-21T00:00:00.000Z", city, kind, keywords: interests, page: 1, center, seed, focused, strategy, disclaimer },
   }, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+type CandidateStrategy = "explore" | "focused" | "learn" | "private";
+
+function parseStrategy(value: string | null): CandidateStrategy {
+  if (value === "focused" || value === "learn" || value === "private") return value;
+  return "explore";
+}
+
+function candidateLabel(input: { focused: boolean; strategy: CandidateStrategy; mode: "live" | "demo" }) {
+  const base = input.strategy === "private" ? "私人发现" : input.focused ? "按想法探索" : input.strategy === "learn" ? "根据结果换一批" : "随机发现";
+  return input.mode === "demo" ? `${base} · 演示` : base;
+}
+
+function prioritizePrivate(candidates: Candidate[], interests: string[], setting: string, unseenTypes: Set<string>) {
+  return [...candidates].sort((left, right) => privateScore(right, interests, setting, unseenTypes) - privateScore(left, interests, setting, unseenTypes));
+}
+
+function matchesInterest(candidate: Candidate, interests: string[]) {
+  return interests.some((interest) => candidate.type.includes(interest) || interest.includes(candidate.type));
+}
+
+function privateScore(candidate: Candidate, interests: string[], setting: string, unseenTypes: Set<string>) {
+  let score = 0;
+  if (matchesInterest(candidate, interests)) score += 4;
+  if (unseenTypes.has(candidate.type)) score += 2;
+  if ((setting === "室内优先" || setting === "安静聊天") && (candidate.features.indoor || candidate.features.quiet)) score += 1;
+  if ((setting === "户外优先" || setting === "热闹聚会") && (candidate.features.indoor === false || candidate.features.conversationFriendly)) score += 1;
+  return score;
 }
 
 function stableShuffle<T>(values: readonly T[], seed: string) {
