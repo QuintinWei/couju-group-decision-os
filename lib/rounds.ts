@@ -1,4 +1,5 @@
-import type { Candidate, Choice, GroupMemberPreference, RoomConfig } from "./couju.ts";
+import type { Candidate, Choice, DecisionKind, GroupMemberPreference, RoomConfig } from "./couju.ts";
+import { DEFAULT_INTERESTS } from "./couju.ts";
 import { estimateTravelBetween, parseCommuteLimit } from "./couju.ts";
 
 export type RoundFeedback = {
@@ -29,12 +30,24 @@ export function aggregateRoundFeedback(candidates: Candidate[], members: RoundMe
   const categoryScores = new Map<string, number>();
   for (const candidate of candidates) {
     const score = readyMembers.reduce((total, member) => total + (member.choices[candidate.id] ? CHOICE_WEIGHT[member.choices[candidate.id]] : 0), 0);
-    categoryScores.set(candidate.type, (categoryScores.get(candidate.type) ?? 0) + score);
+    const category = candidate.matchedInterest || candidate.type;
+    categoryScores.set(category, (categoryScores.get(category) ?? 0) + score);
   }
   const rejectedCandidateIds = candidates
     .filter((candidate) => readyMembers.length > 0 && readyMembers.every((member) => member.choices[candidate.id] === "no"))
     .map((candidate) => candidate.id);
   return { categoryScores, rejectedCandidateIds, seenCandidateIds: candidates.map((candidate) => candidate.id) };
+}
+
+/** Convert persisted stable category keys into the selectable vocabulary for the next learn query. */
+export function normalizeFeedbackInterestScores(kind: DecisionKind, categoryScores: Map<string, number>) {
+  const scores = new Map<string, number>();
+  for (const [feedbackCategory, score] of categoryScores) {
+    const category = DEFAULT_INTERESTS[kind].find((interest) => interest === feedbackCategory || feedbackCategory.includes(interest) || interest.includes(feedbackCategory));
+    if (!category) continue;
+    scores.set(category, (scores.get(category) ?? 0) + score);
+  }
+  return scores;
 }
 
 function providerKey(candidate: Candidate): string {

@@ -1,7 +1,7 @@
 import { GET as getCandidates } from "../candidates/route";
 import { DEFAULT_INTERESTS, type Candidate } from "../../../lib/couju";
-import { aggregateRoundFeedback, buildNextRoundSlots, RoundCompositionError } from "../../../lib/rounds";
-import { evaluateAdvanceGate, evaluatePrivateDiscoveryGate, validateRoundActionPayload } from "../../../lib/round-api";
+import { aggregateRoundFeedback, buildNextRoundSlots, normalizeFeedbackInterestScores, RoundCompositionError } from "../../../lib/rounds";
+import { collectAdvanceExcludedIds, evaluateAdvanceGate, evaluatePrivateDiscoveryGate, executeGuardedGeneration, validateRoundActionPayload } from "../../../lib/round-api";
 import type { CandidateMeta, RoundMutationFailure, StoredMember, StoredRoom } from "../../../lib/room-store";
 
 export const dynamic = "force-dynamic";
@@ -104,15 +104,31 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
   const advanceGate = evaluateAdvanceGate(room, auth.memberId, expectedRound);
   if (!advanceGate.ok) return advanceGateResponse(advanceGate.code, advanceGate.status);
 
+  const execution = await executeGuardedGeneration(
+    advanceGate,
+    () => generateNextRound(request, room),
+    ({ candidates, meta }) => advanceStoredRound({ ...auth, expectedRound, candidates, meta, reason: refreshReason(room) }),
+  );
+  if (!execution.ok) {
+    return execution.code === "GENERATION_FAILED"
+      ? error("下一轮候选生成失败，当前轮次没有改变", execution.status)
+      : advanceGateResponse(execution.code, execution.status);
+  }
+  return mutationResponse(execution.value);
+}
+
+type NextRoundPlan = { candidates: Candidate[]; meta: CandidateMeta };
+
+async function generateNextRound(request: Request, room: StoredRoom): Promise<NextRoundPlan> {
   const feedback = aggregateRoundFeedback(room.candidates, room.members);
   const nominations = validNominations(room.members);
-  const excludedIds = new Set<string>([
-    ...room.candidates.map((candidate) => candidate.source.providerId || candidate.id),
-    ...room.roundHistory.flatMap((entry) => entry.candidateIds),
-    ...room.roundHistory.flatMap((entry) => entry.privateRejectedCandidateIds ?? []),
-    ...feedback.rejectedCandidateIds,
-    ...room.roundHistory.flatMap((entry) => entry.feedback.rejectedCandidateIds),
-  ]);
+  const excludedIds = collectAdvanceExcludedIds({
+    currentCandidates: room.candidates,
+    historicalCandidateIds: room.roundHistory.flatMap((entry) => entry.candidateIds),
+    historicalPrivateRejectedIds: room.roundHistory.flatMap((entry) => entry.privateRejectedCandidateIds ?? []),
+    feedbackRejectedIds: [...feedback.rejectedCandidateIds, ...room.roundHistory.flatMap((entry) => entry.feedback.rejectedCandidateIds)],
+    currentPrivateMembers: room.members,
+  });
   const learnedScores = aggregateInterestScores(room, feedback);
   const learnedInterests = [...learnedScores.entries()]
     .filter(([, score]) => score > 0)
@@ -145,10 +161,12 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
   try {
     candidates = buildNextRoundSlots(nominations, learned.candidates, reservedExploration);
   } catch (cause) {
-    if (cause instanceof RoundCompositionError) return error(cause.message, 422);
+    if (cause instanceof RoundCompositionError) throw new CandidateGenerationError(cause.message);
     throw cause;
   }
-  if (candidates.length !== 12 || !hasUniqueProviderIds(candidates)) return error("下一轮候选未能组成 12 张不同卡片", 422);
+  if (candidates.length !== 12 || !hasUniqueProviderIds(candidates)) {
+    throw new CandidateGenerationError("下一轮候选未能组成 12 张不同卡片");
+  }
 
   const meta: CandidateMeta = {
     ...learned.meta,
@@ -156,8 +174,7 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
     strategy: "learn",
     keywords: learnedInterests,
   };
-  const result = await advanceStoredRound({ ...auth, expectedRound, candidates, meta, reason: refreshReason(room) });
-  return mutationResponse(result);
+  return { candidates, meta };
 }
 
 type MemberAuth = { roomCode: string; memberId: string; token: string };
@@ -237,18 +254,7 @@ function unseenCategories(room: StoredRoom) {
 }
 
 function aggregateInterestScores(room: StoredRoom, feedback: ReturnType<typeof aggregateRoundFeedback>) {
-  const typeCategories = new Map<string, string>();
-  for (const candidate of room.candidates) {
-    const category = candidateCategory(room.config.kind, candidate);
-    if (category && !typeCategories.has(candidate.type)) typeCategories.set(candidate.type, category);
-  }
-  const scores = new Map<string, number>();
-  for (const [type, score] of feedback.categoryScores) {
-    const category = typeCategories.get(type) ?? normalizeCategory(room.config.kind, type);
-    if (!category) continue;
-    scores.set(category, (scores.get(category) ?? 0) + score);
-  }
-  return scores;
+  return normalizeFeedbackInterestScores(room.config.kind, feedback.categoryScores);
 }
 
 function explorationInterests(room: StoredRoom, learned: Set<string>) {

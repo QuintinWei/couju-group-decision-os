@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aggregateRoundFeedback, buildNextRoundSlots, canRequestPrivateDiscovery, diagnoseRoundConflict, RoundCompositionError } from "../lib/rounds.ts";
+import { aggregateRoundFeedback, buildNextRoundSlots, canRequestPrivateDiscovery, diagnoseRoundConflict, normalizeFeedbackInterestScores, RoundCompositionError } from "../lib/rounds.ts";
 import { getDemoCandidates } from "../lib/couju.ts";
 
 const candidates = getDemoCandidates("上海", "activity").slice(0, 3);
@@ -24,6 +24,25 @@ test("group feedback uses like +2, okay +0.5, no -1.5", () => {
   assert.equal(feedback.categoryScores.get(candidates[1].type), 2.5);
   assert.deepEqual(feedback.rejectedCandidateIds, [candidates[2].id]);
   assert.deepEqual(feedback.seenCandidateIds, candidates.map((candidate) => candidate.id));
+});
+
+test("feedback keeps distinct matched interests even when Amap returns the same raw type", () => {
+  const source = getDemoCandidates("上海", "activity");
+  const sameRawType = [
+    { ...source[0], id: "clay", type: "生活服务", matchedInterest: "陶艺泥塑" },
+    { ...source[1], id: "climb", type: "生活服务", matchedInterest: "攀岩" },
+  ];
+  const feedback = aggregateRoundFeedback(sameRawType, [{
+    id: "member",
+    choices: { clay: "like", climb: "no" },
+    submittedAt: "2026-08-24T00:00:00.000Z",
+  }]);
+  assert.equal(feedback.categoryScores.get("陶艺泥塑"), 2);
+  assert.equal(feedback.categoryScores.get("攀岩"), -1.5);
+  assert.equal(feedback.categoryScores.has("生活服务"), false);
+  const learnScores = normalizeFeedbackInterestScores("activity", feedback.categoryScores);
+  assert.equal(learnScores.get("陶艺泥塑"), 2);
+  assert.equal(learnScores.get("攀岩"), -1.5);
 });
 
 test("next round keeps nominations, fills learned slots, and reserves four exploration cards", () => {

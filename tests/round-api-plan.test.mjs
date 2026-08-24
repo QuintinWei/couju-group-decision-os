@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allCurrentMembersSubmitted, evaluateAdvanceGate, evaluatePrivateDiscoveryGate, executeGuardedGeneration, validateRoundActionPayload } from "../lib/round-api.ts";
+import { allCurrentMembersSubmitted, collectAdvanceExcludedIds, collectCurrentPrivateRejectedIds, evaluateAdvanceGate, evaluatePrivateDiscoveryGate, executeGuardedGeneration, validateRoundActionPayload } from "../lib/round-api.ts";
 
 const candidates = Array.from({ length: 12 }, (_, index) => ({ id: `candidate-${index}`, source: { providerId: `provider-${index}` } }));
 const submitted = { id: "creator", submittedAt: "2026-08-24T00:00:00.000Z" };
@@ -41,4 +41,34 @@ test("round payload validation rejects coercion and non-boolean refresh values",
   const base = { action: "request", roomCode: "ABC123", memberId: "member", token: "token" };
   assert.deepEqual(validateRoundActionPayload({ ...base, expectedRound: true }), { ok: false, status: 400, code: "MALFORMED" });
   assert.deepEqual(validateRoundActionPayload({ ...base, expectedRound: 1, requested: "yes" }), { ok: false, status: 400, code: "MALFORMED" });
+});
+
+test("current private cards are excluded unless their owner nominates them", () => {
+  const rejected = collectCurrentPrivateRejectedIds([
+    {
+      privateCandidates: [
+        { id: "private-rejected", source: { providerId: "private-rejected" } },
+        { id: "private-nominated", source: { providerId: "private-nominated" } },
+      ],
+      nominatedCandidate: { id: "private-nominated", source: { providerId: "private-nominated" } },
+    },
+  ]);
+  assert.deepEqual([...rejected], ["private-rejected"]);
+});
+
+test("advance planning cannot put a currently rejected private card in the next shared pool", () => {
+  const excluded = collectAdvanceExcludedIds({
+    currentCandidates: [{ id: "current" }],
+    historicalCandidateIds: ["prior-round"],
+    historicalPrivateRejectedIds: ["archived-private"],
+    feedbackRejectedIds: [],
+    currentPrivateMembers: [{
+      privateCandidates: [{ id: "current-private-rejected" }, { id: "current-private-nominated" }],
+      nominatedCandidate: { id: "current-private-nominated" },
+    }],
+  });
+  assert.equal(excluded.has("current-private-rejected"), true);
+  assert.equal(excluded.has("current-private-nominated"), false);
+  assert.equal(excluded.has("prior-round"), true);
+  assert.equal(excluded.has("archived-private"), true);
 });

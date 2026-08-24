@@ -2,6 +2,7 @@ import { getD1 } from "../db";
 import type { Candidate, Choice, PreferenceExtraction, RoomConfig } from "./couju";
 import { aggregateRoundFeedback, type RoundFeedback } from "./rounds";
 import { allCurrentMembersSubmitted } from "./round-api";
+import { hasSubmittedMembersAtAdvanceBoundary } from "./round-store-guard";
 
 export type CandidateMeta = {
   mode: "live" | "demo";
@@ -291,6 +292,7 @@ export async function advanceStoredRound(input: MemberAuth & { expectedRound: nu
   if (room.current_round >= 3) return { ok: false, code: "MAX_ROUNDS" };
   const roundMembers = await readRoundMembers(input.roomCode);
   if (!allCurrentMembersSubmitted(roundMembers)) return { ok: false, code: "INCOMPLETE_MEMBERS" };
+  if (!await hasSubmittedMembersAtAdvanceBoundary(db, input.roomCode)) return { ok: false, code: "INCOMPLETE_MEMBERS" };
 
   const now = new Date().toISOString();
   const nextRound = room.current_round + 1;
