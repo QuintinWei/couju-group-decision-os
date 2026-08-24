@@ -1,4 +1,5 @@
 import { ACTIVITY_INTERESTS, DEFAULT_INTERESTS, DINING_INTERESTS, estimateTravelBetween, estimateTravelMinutes, extractWithRules, getDemoCandidates, rankGroupCandidates, SUPPORTED_CITIES, type Candidate, type CityName, type DecisionKind, type RoomConfig } from "../../../lib/couju";
+import { amapPagesForBatch, selectCandidateBatch } from "../../../lib/candidate-pool";
 
 export const dynamic = "force-dynamic";
 
@@ -37,18 +38,21 @@ export async function GET(request: Request) {
   const interests = [...new Set(focused ? requested : [...strategyInterests, ...discoveryPool])].slice(0, kind === "activity" ? 8 : 7);
   const setting = url.searchParams.get("setting")?.trim().slice(0, 24) || "";
   const page = Math.min(5, Math.max(1, Number(url.searchParams.get("page")) || 1));
+  const batchIndex = Math.max(0, Number(url.searchParams.get("batch")) || page - 1);
   const location = parseLocation(url.searchParams.get("location"));
   const privateRanking = privateMode ? parsePrivateRanking(url, city, kind, location, setting) : null;
   const key = process.env.AMAP_WEB_SERVICE_KEY;
   if (!key) return demoResponse(city, kind, interests, seed, focused, strategy, location, excludedIds, targetCount, setting, explorationTypes, learnedScores, privateRanking, "未配置高德 Web 服务 Key，当前展示带明确标识的演示候选。", 200);
 
   try {
-    const resultSets = await Promise.all(interests.map((interest) => searchAmap({ key, city, kind, interest, page })));
-    const candidates = prioritizeStrategy(diversify(resultSets, city, kind, avoidTokens, excludedIds, location), strategy, interests, explorationTypes, learnedScores, privateRanking).slice(0, targetCount);
+    const pages = privateMode ? [page] : amapPagesForBatch(batchIndex);
+    const resultSets = await Promise.all(interests.flatMap((interest) => pages.map((pageNumber) => searchAmap({ key, city, kind, interest, page: pageNumber }))));
+    const prioritized = prioritizeStrategy(diversify(resultSets, city, kind, avoidTokens, excludedIds, location), strategy, interests, explorationTypes, learnedScores, privateRanking);
+    const candidates = privateMode ? prioritized.slice(0, targetCount) : selectCandidateBatch(prioritized, { excludedIds, batchSize: targetCount, seed, kind });
     if (candidates.length !== targetCount || !hasUniqueProviderIds(candidates)) throw new Error("Not enough usable POIs");
     return Response.json({
       candidates,
-      meta: { mode: "live", label: candidateLabel({ focused, strategy, mode: "live", hasUnseenPriority: unseenTypes.size > 0, hasExplorationPriority: requestedExploreTypes.size > 0, hasFeedback: learnedScores.size > 0 }), fetchedAt: new Date().toISOString(), city, kind, keywords: interests, avoid: avoidTokens, page, center: location, seed, focused, strategy, disclaimer: "候选从全城分类型召回；每位成员的出发地与通勤上限只在最终计算时单独过滤。" },
+      meta: { mode: "live", label: candidateLabel({ focused, strategy, mode: "live", hasUnseenPriority: unseenTypes.size > 0, hasExplorationPriority: requestedExploreTypes.size > 0, hasFeedback: learnedScores.size > 0 }), fetchedAt: new Date().toISOString(), city, kind, keywords: interests, avoid: avoidTokens, page: pages[0], center: location, seed, focused, strategy, disclaimer: "候选从全城分类型召回；每位成员的出发地与通勤上限只在最终计算时单独过滤。" },
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return demoResponse(city, kind, interests, seed, focused, strategy, location, excludedIds, targetCount, setting, explorationTypes, learnedScores, privateRanking, "高德地点服务暂时不可用，已切换为演示候选。", 200);
@@ -191,7 +195,7 @@ function parsePrivateRanking(url: URL, city: CityName, kind: DecisionKind, origi
   const startTime = url.searchParams.get("startTime") || "18:00";
   const endTime = url.searchParams.get("endTime") || "21:30";
   return {
-    config: { city, kind, date, startTime, endTime, people: 1 },
+    config: { city, kind, dateRange: { start: date, end: date }, preferredPeriods: ["evening"], durationMinutes: null, resolvedSchedule: { startAt: `${date}T${startTime}:00+08:00`, endAt: `${date}T${endTime}:00+08:00`, attendeeIds: ["private-member"] }, date, startTime, endTime, people: 1 },
     originLocation,
     budgetLabel: url.searchParams.get("budget")?.trim().slice(0, 24) || "不限",
     commuteLabel: url.searchParams.get("commute")?.trim().slice(0, 24) || "不限",

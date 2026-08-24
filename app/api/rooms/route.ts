@@ -1,6 +1,7 @@
 import { SUPPORTED_CITIES, type Candidate, type RoomConfig } from "../../../lib/couju";
 import { geocodeOrigin } from "../../../lib/amap";
 import { toJoinRoom, toParticipantRoom } from "../../../lib/public-room";
+import { validateScheduleConfig } from "../../../lib/scheduling";
 
 export const dynamic = "force-dynamic";
 
@@ -35,9 +36,11 @@ export async function POST(request: Request) {
   const meta = body.meta && typeof body.meta === "object" ? body.meta as { mode: "live" | "demo"; label: string; fetchedAt: string; disclaimer?: string } : null;
   const creatorName = cleanText(body.creatorName, 18);
   const creatorOrigin = cleanText(body.creatorOrigin, 40);
-  if (!config || !SUPPORTED_CITIES.includes(config.city) || !["dining", "activity"].includes(config.kind) || !config.date || !config.startTime || !config.endTime || !Number.isInteger(config.people) || config.people < 2 || config.people > 6 || candidates.length !== 12 || !hasUniqueProviderIds(candidates) || !meta || !creatorName || !creatorOrigin) {
+  if (!config || !SUPPORTED_CITIES.includes(config.city) || !["dining", "activity"].includes(config.kind) || !Number.isInteger(config.people) || config.people < 2 || config.people > 6 || candidates.length !== 12 || !hasUniqueProviderIds(candidates) || !meta || !creatorName || !creatorOrigin) {
     return Response.json({ error: "请完整填写房间信息、昵称和出发地" }, { status: 400 });
   }
+  try { validateScheduleConfig(config); }
+  catch (error) { return Response.json({ error: error instanceof Error ? error.message : "时间设置无效" }, { status: 400 }); }
   try {
     const suppliedLocation = validLocation(body.creatorOriginLocation);
     const creatorOriginLocation = suppliedLocation || await geocodeOrigin(config.city, creatorOrigin);

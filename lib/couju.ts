@@ -36,10 +36,15 @@ export const DEFAULT_INTERESTS: Record<DecisionKind, string[]> = {
 export type RoomConfig = {
   kind: DecisionKind;
   city: CityName;
+  people: number;
+  dateRange: import("./scheduling").DateRange;
+  preferredPeriods: import("./scheduling").TimePeriod[];
+  durationMinutes: import("./scheduling").DurationChoice;
+  resolvedSchedule: import("./scheduling").ResolvedSchedule | null;
+  /** Derived compatibility fields used only by ranking after a schedule is resolved. */
   date: string;
   startTime: string;
   endTime: string;
-  people: number;
 };
 
 export type Candidate = {

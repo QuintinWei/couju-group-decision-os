@@ -38,14 +38,14 @@ test("the unauthenticated join DTO contains only room summary and joined display
   const privateCard = { ...shared[0], id: "private-card-id", source: { ...shared[0].source, providerId: "private-poi-id" } };
   const room = {
     code: "ABC123",
-    config: { kind: "activity", city: "上海", date: "2026-08-24", startTime: "18:00", endTime: "21:30", people: 2 },
+    config: { kind: "activity", city: "上海", dateRange: { start: "2026-08-24", end: "2026-08-24" }, preferredPeriods: ["evening"], durationMinutes: 180, resolvedSchedule: { startAt: "2026-08-24T18:00:00+08:00", endAt: "2026-08-24T21:00:00+08:00", attendeeIds: ["member"] }, date: "2026-08-24", startTime: "18:00", endTime: "21:00", people: 2 },
     candidates: shared,
     meta: { mode: "demo", label: "test", fetchedAt: "2026-08-24T00:00:00.000Z" },
     currentRound: 1,
     roundHistory: [],
     createdAt: "2026-08-24T00:00:00.000Z",
     updatedAt: "2026-08-24T00:00:00.000Z",
-    members: [{ id: "member", name: "成员", origin: "静安寺", originLocation: null, budgetLabel: "不限", commuteLabel: "不限", setting: "都可以", note: "", extraction: null, choices: { [shared[0].id]: "no" }, submittedAt: "2026-08-24T00:00:00.000Z", refreshRequestRound: 1, privateCandidates: [privateCard], nominatedCandidate: privateCard }],
+    members: [{ id: "member", name: "成员", origin: "静安寺", originLocation: null, budgetLabel: "不限", commuteLabel: "不限", setting: "都可以", note: "", extraction: null, choices: { [shared[0].id]: "no" }, submittedAt: "2026-08-24T00:00:00.000Z", availability: [], refreshRequestRound: 1, privateCandidates: [privateCard], nominatedCandidate: privateCard }],
   };
 
   const joinRoom = toJoinRoom(room);
@@ -56,7 +56,11 @@ test("the unauthenticated join DTO contains only room summary and joined display
     city: "上海",
     date: "2026-08-24",
     startTime: "18:00",
-    endTime: "21:30",
+    endTime: "21:00",
+    dateRange: { start: "2026-08-24", end: "2026-08-24" },
+    preferredPeriods: ["evening"],
+    durationMinutes: 180,
+    resolvedSchedule: { startAt: "2026-08-24T18:00:00+08:00", endAt: "2026-08-24T21:00:00+08:00", attendeeIds: ["member"] },
     targetCount: 2,
     joinedCount: 1,
     joinedNames: ["成员"],

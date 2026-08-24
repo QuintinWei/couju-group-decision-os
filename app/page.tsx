@@ -29,8 +29,8 @@ import { canRequestPrivateDiscovery, privateDiscoveryFailure, privateDiscoveryRe
 
 type CandidateMeta = { mode: DataMode; label: string; fetchedAt: string; disclaimer?: string; keywords?: string[]; avoid?: string[]; page?: number; center?: GeoPoint | null; seed?: string; focused?: boolean; strategy?: "explore" | "focused" | "learn" | "private"; commuteWindow?: string };
 type AiExplanation = { headline: string; reasoning: string; tradeoff: string };
-type ClientStage = Stage | "private-discovery";
-const stageOrder: ClientStage[] = ["create", "room", ...PREFERENCE_FLOW, "private-discovery", "ranking", "results", "locked"];
+type ClientStage = Stage | "availability" | "private-discovery";
+const stageOrder: ClientStage[] = ["create", "availability", "room", ...PREFERENCE_FLOW, "private-discovery", "ranking", "results", "locked"];
 type MemberIdentity = { id: string; token: string };
 type GeoPoint = { lng: number; lat: number };
 type LocationResponse = { location?: GeoPoint; label?: string; city?: CityName | null; error?: string };
@@ -52,8 +52,12 @@ function browserLocationError(error: GeolocationPositionError) {
 }
 
 function createDefaultConfig(): RoomConfig {
-  return { kind: "dining", city: "上海", date: shanghaiDate(1), startTime: "18:00", endTime: "21:30", people: 4 };
+  const start = shanghaiDate(1);
+  return { kind: "dining", city: "上海", dateRange: { start, end: start }, preferredPeriods: ["evening"], durationMinutes: 180, resolvedSchedule: null, date: start, startTime: "", endTime: "", people: 4 };
 }
+
+const PERIOD_LABELS = { morning: "上午", afternoon: "下午", evening: "晚上" } as const;
+const DURATION_OPTIONS = [{ value: 120, label: "2 小时" }, { value: 180, label: "3 小时" }, { value: 240, label: "4 小时" }, { value: "240_plus", label: "4 小时以上" }, { value: null, label: "不确定" }] as const;
 
 function shanghaiDate(offsetDays = 0) {
   const date = new Date(Date.now() + offsetDays * 86_400_000);
@@ -123,6 +127,7 @@ export default function Home() {
   const [advanceConfirmOpen, setAdvanceConfirmOpen] = useState(false);
   const [advanceLoading, setAdvanceLoading] = useState(false);
   const [toast, setToast] = useState("");
+  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const pointerStart = useRef<number | null>(null);
   const knownRoundRef = useRef<number | null>(null);
 
@@ -178,13 +183,13 @@ export default function Home() {
       try { saved = JSON.parse(window.localStorage.getItem(`couju-room-${code}`) || "null") as MemberIdentity | null; } catch { saved = null; }
       setIdentity(saved);
       if (saved) {
-        void refreshRoom(code, false, saved).then((loaded) => loaded && setStage(loaded.members.some((member) => member.id === saved.id) ? "room" : "join"));
+        void refreshRoom(code, false, saved).then((loaded) => { const member = loaded?.members.find((item) => item.id === saved.id); if (member) setStage(member.availability === null ? "availability" : "room"); else if (loaded) setStage("join"); });
       } else {
         void fetch(`/api/rooms?code=${encodeURIComponent(code)}`, { cache: "no-store" })
           .then(async (response) => ({ response, payload: await response.json() as { room?: JoinRoomDto; error?: string } }))
           .then(({ response, payload }) => {
             if (!response.ok || !payload.room) throw new Error(payload.error || "房间加载失败");
-            setJoinRoomSummary(payload.room); setConfig((current) => ({ ...current, kind: payload.room!.kind, city: payload.room!.city, date: payload.room!.date, startTime: payload.room!.startTime, endTime: payload.room!.endTime, people: payload.room!.targetCount })); setStage("join");
+            setJoinRoomSummary(payload.room); setConfig((current) => ({ ...current, kind: payload.room!.kind, city: payload.room!.city, dateRange: payload.room!.dateRange, preferredPeriods: payload.room!.preferredPeriods, durationMinutes: payload.room!.durationMinutes, resolvedSchedule: payload.room!.resolvedSchedule, date: payload.room!.date, startTime: payload.room!.startTime, endTime: payload.room!.endTime, people: payload.room!.targetCount })); setStage("join");
           })
           .catch((cause) => setRoomError(cause instanceof Error ? cause.message : "房间加载失败"));
       }
@@ -193,7 +198,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!roomCode || !["room", "setup", "swipe", "constraints", "private-discovery", "ranking", "results", "locked"].includes(stage)) return;
+    if (!roomCode || !["availability", "room", "setup", "swipe", "constraints", "private-discovery", "ranking", "results", "locked"].includes(stage)) return;
     const timer = window.setInterval(() => { void refreshRoom(roomCode, true); }, 4000);
     return () => window.clearInterval(timer);
   }, [roomCode, stage]);
@@ -277,7 +282,7 @@ export default function Home() {
       window.localStorage.setItem(`couju-room-${roomPayload.identity.code}`, JSON.stringify(nextIdentity));
       window.history.replaceState({}, "", `?room=${roomPayload.identity.code}`);
       setRoomCode(roomPayload.identity.code); setIdentity(nextIdentity); setCandidates(payload.candidates); setCandidateMeta(payload.meta);
-      await refreshRoom(roomPayload.identity.code, false, nextIdentity); setStage("room");
+      await refreshRoom(roomPayload.identity.code, false, nextIdentity); setStage("availability");
     } catch (error) { setRoomError(error instanceof Error ? error.message : "房间创建失败"); }
     finally { setCandidateLoading(false); }
   };
@@ -289,8 +294,23 @@ export default function Home() {
       const payload = await response.json() as { identity?: MemberIdentity; error?: string };
       if (!response.ok || !payload.identity) throw new Error(payload.error || "加入失败");
       setIdentity(payload.identity); window.localStorage.setItem(`couju-room-${roomCode}`, JSON.stringify(payload.identity));
-      await refreshRoom(roomCode, true, payload.identity); setStage("room");
+      await refreshRoom(roomCode, true, payload.identity); setStage("availability");
     } catch (error) { setRoomError(error instanceof Error ? error.message : "加入失败"); }
+    finally { setSyncing(false); }
+  };
+
+  const submitAvailability = async () => {
+    if (!identity || !room) return;
+    setSyncing(true); setRoomError("");
+    try {
+      const intervals = slotsToIntervals(availableSlots);
+      const response = await fetch("/api/availability", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ roomCode, memberId: identity.id, token: identity.token, expectedRound: room.currentRound, intervals }) });
+      const payload = await response.json() as { error?: string; resolution?: { status: "incomplete" | "resolved" | "partial"; unavailableMemberIds?: string[] } };
+      if (!response.ok) throw new Error(payload.error || "空闲时间提交失败");
+      await refreshRoom(roomCode, true);
+      if (payload.resolution?.status === "partial") { setRoomError("目前没有所有人都能参加的共同时间，请调整选择后重新提交"); return; }
+      setStage("room"); setToast(payload.resolution?.status === "resolved" ? "已算出共同时间" : "空闲时间已提交，等待其他成员");
+    } catch (error) { setRoomError(error instanceof Error ? error.message : "空闲时间提交失败"); }
     finally { setSyncing(false); }
   };
 
@@ -455,10 +475,11 @@ export default function Home() {
   const vetoReasons = config.kind === "dining" ? ["太辣了", "不吃生食", "还是太远", "价格超预期"] : ["太吵了", "不想运动", "还是太远", "价格超预期"];
 
   return <main className={`app ${stage === "home" ? "home-mode" : "demo-mode"}`}>
-    <header className="app-header"><button className="brand" onClick={() => stage !== "home" && resetSession()} aria-label="返回凑局首页"><span className="brand-mark">凑</span><span>凑局</span><small>COUJU</small></button>{stage === "home" ? <span className="privacy-pill"><i /> 六城地点已上线</span> : <div className="demo-header-right"><div className="step-dots" aria-label={`Demo 进度 ${currentProgress + 1}/${stageOrder.length}`}>{stageOrder.map((item, index) => <span key={item} className={index <= currentProgress ? "active" : ""} />)}</div><span className={`demo-badge mode-${candidateMeta.mode}`}>{candidateMeta.mode === "live" ? "地点推荐" : "演示数据"}</span><button className="quiet-button" onClick={resetSession}>退出</button></div>}</header>
+    <header className="app-header"><button className="brand" onClick={() => stage !== "home" && resetSession()} aria-label="返回凑局首页"><span className="brand-mark">凑</span><span>凑局</span><small>COUJU</small></button>{stage === "home" ? <span className="privacy-pill"><i /> 十城地点已上线</span> : <div className="demo-header-right"><div className="step-dots" aria-label={`Demo 进度 ${currentProgress + 1}/${stageOrder.length}`}>{stageOrder.map((item, index) => <span key={item} className={index <= currentProgress ? "active" : ""} />)}</div><span className={`demo-badge mode-${candidateMeta.mode}`}>{candidateMeta.mode === "live" ? "地点推荐" : "演示数据"}</span><button className="quiet-button" onClick={resetSession}>退出</button></div>}</header>
     {stage === "home" && <HomeScreen onStart={() => setStage("create")} />}
     {stage === "create" && <CreateScreen config={config} creatorName={creatorName} creatorOrigin={creatorOrigin} creatorLocation={creatorLocation} locationStatus={locationStatus} locating={locating} ideaMode={ideaMode} selectedInterests={selectedInterests} avoid={avoid} setCreatorName={setCreatorName} setCreatorOrigin={(value) => { setCreatorOrigin(value); setCreatorLocation(null); setLocationStatus("输入后会识别地铁站或商圈，并用于通勤估算"); }} setIdeaMode={setIdeaMode} setSelectedInterests={setSelectedInterests} setAvoid={setAvoid} onLocate={useCurrentLocation} error={roomError} onChange={updateConfig} onBack={() => setStage("home")} onCreate={createRoom} loading={candidateLoading} />}
     {stage === "join" && joinRoomSummary && <JoinScreen room={joinRoomSummary} loading={syncing} error={roomError} onJoin={joinRoom} />}
+    {stage === "availability" && room && <AvailabilityScreen config={room.config} selected={availableSlots} setSelected={setAvailableSlots} loading={syncing} error={roomError} onSubmit={submitAvailability} />}
     {stage === "room" && room && <RoomScreen room={room} currentMember={currentMember} syncing={syncing} error={roomError} onShare={copyShare} onPreference={() => { setCardIndex(0); setSwipes(currentMember?.choices ?? {}); setBudget(currentMember?.budgetLabel || budget); setCommute(currentMember?.commuteLabel || commute); setSetting(currentMember?.setting || setting); setNote(currentMember?.note || ""); setExtraction(currentMember?.extraction ?? null); setPrivateCandidates([]); setPrivateNominationId(null); setPrivateError(""); setStage("setup"); }} onRank={startRanking} onRequestNextRound={requestNextRound} onOpenAdvance={() => setAdvanceConfirmOpen(true)} />}
     {stage === "setup" && <PreferenceSetupScreen config={config} budget={budget} commute={commute} setting={setting} setBudget={setBudget} setCommute={setCommute} setSetting={setSetting} onBack={() => setStage("room")} onContinue={() => setStage("swipe")} />}
     {stage === "swipe" && <SwipeScreen config={config} cards={candidates} index={cardIndex} choices={swipes} travelMinutes={estimateTravelBetween(currentMember?.originLocation ?? null, candidates[cardIndex]?.location ?? null) ?? candidates[cardIndex]?.estimatedTravelMinutes ?? null} onChoose={chooseCard} onBack={() => setStage("setup")} onPointerDown={(x) => { pointerStart.current = x; }} onPointerUp={(x) => { if (pointerStart.current === null) return; const delta = x - pointerStart.current; if (delta > 65) chooseCard("like"); else if (delta < -65) chooseCard("no"); pointerStart.current = null; }} />}
@@ -474,10 +495,37 @@ export default function Home() {
 }
 
 function HomeScreen({ onStart }: { onStart: () => void }) {
-  return <><section className="hero"><div className="hero-copy"><div className="eyebrow"><i /> AI GROUP DECISION</div><h1>不是猜一个答案，<br /><em>是算出交集。</em></h1><p>说出每个人的预算、时间和偏好，凑局会从真实地点中找到大家都能接受的方案。</p><div className="hero-actions"><button className="primary-button" onClick={onStart}>开始创建 <span>→</span></button><span><b>上海 · 北京 · 深圳</b><br />杭州 · 成都 · 广州</span></div><div className="hero-proof"><div className="proof-faces"><i>懂</i><i>算</i><i>选</i></div><span><b>理解每个人，再匹配共同选择</b><small>预算、距离和底线都会改变结果</small></span></div></div><div className="decision-card" aria-label="凑局推荐预览"><div className="floating-chat chat-one"><b>人均 150</b><small>进入预算筛选</small></div><div className="floating-chat chat-two"><b>别太辣</b><small>AI 理解偏好</small></div><div className="card-topline"><span><i /> 周末聚餐</span><b>GROUP FIT</b></div><div className="trust-stack"><div><span>01</span><p><b>选城市</b><small>六座城市均可使用</small></p><em>地点</em></div><div><span>02</span><p><b>说偏好</b><small>AI 理解自然语言</small></p><em>理解</em></div><div><span>03</span><p><b>一起选</b><small>兼顾每个人的底线</small></p><em>公平</em></div></div><div className="place-result"><div className="result-visual photo-preview"><img src="/candidates/food-yunnan.jpg" alt="聚餐候选示例" /><span>PREVIEW</span></div><div><small>结果随输入变化</small><h3>Group Fit 动态计算</h3><p>预算 · 距离 · 偏好 · 底线</p></div><strong>ƒ(x)<small>FAIRMIX</small></strong></div><div className="fit-line"><i>✓</i><span><b>不是少数服从多数</b><small>先保证每个人都能接受，再寻找整体最优</small></span></div></div></section><section className="how-strip"><div><b>01</b><span>选择城市与场景</span><small>六城餐厅与活动均可选择</small></div><div className="arrow">→</div><div><b>02</b><span>告诉 AI 你的底线</span><small>自然语言会变成可确认条件</small></div><div className="arrow">→</div><div><b>03</b><span>一起找到交集</span><small>每条推荐都有清楚理由</small></div></section></>;
+  return <><section className="hero"><div className="hero-copy"><div className="eyebrow"><i /> AI GROUP DECISION</div><h1>不是猜一个答案，<br /><em>是算出交集。</em></h1><p>说出每个人的预算、时间和偏好，凑局会从真实地点中找到大家都能接受的方案。</p><div className="hero-actions"><button className="primary-button" onClick={onStart}>开始创建 <span>→</span></button><span><b>上海 · 北京 · 广深杭成</b><br />南京 · 重庆 · 苏州 · 合肥</span></div><div className="hero-proof"><div className="proof-faces"><i>懂</i><i>算</i><i>选</i></div><span><b>理解每个人，再匹配共同选择</b><small>预算、距离和底线都会改变结果</small></span></div></div><div className="decision-card" aria-label="凑局推荐预览"><div className="floating-chat chat-one"><b>人均 150</b><small>进入预算筛选</small></div><div className="floating-chat chat-two"><b>别太辣</b><small>AI 理解偏好</small></div><div className="card-topline"><span><i /> 周末聚餐</span><b>GROUP FIT</b></div><div className="trust-stack"><div><span>01</span><p><b>选城市</b><small>十座城市均可使用</small></p><em>地点</em></div><div><span>02</span><p><b>说偏好</b><small>AI 理解自然语言</small></p><em>理解</em></div><div><span>03</span><p><b>一起选</b><small>兼顾每个人的底线</small></p><em>公平</em></div></div><div className="place-result"><div className="result-visual photo-preview"><img src="/candidates/food-yunnan.jpg" alt="聚餐候选示例" /><span>PREVIEW</span></div><div><small>结果随输入变化</small><h3>Group Fit 动态计算</h3><p>预算 · 距离 · 偏好 · 底线</p></div><strong>ƒ(x)<small>FAIRMIX</small></strong></div><div className="fit-line"><i>✓</i><span><b>不是少数服从多数</b><small>先保证每个人都能接受，再寻找整体最优</small></span></div></div></section><section className="how-strip"><div><b>01</b><span>选择城市与场景</span><small>十城餐厅与活动均可选择</small></div><div className="arrow">→</div><div><b>02</b><span>告诉 AI 你的底线</span><small>自然语言会变成可确认条件</small></div><div className="arrow">→</div><div><b>03</b><span>一起找到交集</span><small>每条推荐都有清楚理由</small></div></section></>;
 }
 
 function ScreenTitle({ eyebrow, title, detail }: { eyebrow: string; title: string; detail: string }) { return <div className="screen-title"><span>{eyebrow}</span><h1>{title}</h1><p>{detail}</p></div>; }
+
+function dateRangeDays(start: string, end: string) {
+  const result: string[] = [];
+  for (let cursor = new Date(`${start}T00:00:00+08:00`).getTime(), last = new Date(`${end}T00:00:00+08:00`).getTime(); cursor <= last && result.length < 14; cursor += 86_400_000) result.push(new Date(cursor + 8 * 60 * 60_000).toISOString().slice(0, 10));
+  return result;
+}
+
+function slotsToIntervals(slots: string[]) {
+  const sorted = [...new Set(slots)].sort();
+  const result: Array<{ startAt: string; endAt: string }> = [];
+  for (const slot of sorted) {
+    const start = new Date(slot).getTime(); const end = start + 30 * 60_000;
+    const previous = result.at(-1);
+    if (previous && new Date(previous.endAt).getTime() === start) previous.endAt = new Date(end).toISOString().replace(".000Z", "+00:00");
+    else result.push({ startAt: slot, endAt: new Date(end).toISOString().replace(".000Z", "+00:00") });
+  }
+  return result;
+}
+
+function AvailabilityScreen({ config, selected, setSelected, loading, error, onSubmit }: { config: RoomConfig; selected: string[]; setSelected: (value: string[]) => void; loading: boolean; error: string; onSubmit: () => void }) {
+  const [showAll, setShowAll] = useState(false);
+  const periods = showAll ? ["morning", "afternoon", "evening"] : config.preferredPeriods;
+  const hours = periods.flatMap((period) => period === "morning" ? [8, 9, 10, 11] : period === "afternoon" ? [12, 13, 14, 15, 16, 17] : [18, 19, 20, 21, 22, 23]);
+  const slots = dateRangeDays(config.dateRange.start, config.dateRange.end).flatMap((date) => hours.flatMap((hour) => [0, 30].map((minute) => `${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+08:00`)));
+  const toggle = (slot: string) => setSelected(selected.includes(slot) ? selected.filter((item) => item !== slot) : [...selected, slot]);
+  return <section className="flow-page create-page availability-page"><ScreenTitle eyebrow="YOUR AVAILABILITY" title="你什么时候有空？" detail={`${formatDate(config.dateRange.start)} 至 ${formatDate(config.dateRange.end)} · 每格 30 分钟 · 可多选不连续时间`} /><div className="form-card availability-card"><div className="availability-toolbar"><p>默认展示房主选择的{config.preferredPeriods.map((item) => PERIOD_LABELS[item]).join("、")}</p><button className="quiet-button" onClick={() => setShowAll((value) => !value)}>{showAll ? "只看首选时段" : "显示其他时间"}</button></div><div className="slot-grid">{slots.map((slot) => <button type="button" key={slot} className={selected.includes(slot) ? "selected" : ""} onClick={() => toggle(slot)}><small>{formatDate(slot.slice(0, 10))}</small><b>{slot.slice(11, 16)}</b></button>)}</div>{error && <p className="form-error">{error}</p>}<button className="full-dark-button" disabled={loading || selected.length === 0} onClick={onSubmit}>{loading ? "正在提交…" : `提交 ${selected.length} 个半小时时段`} <span>→</span></button><p className="privacy-note">你的具体空闲时间不会展示给其他成员，只显示是否已提交；系统只公开最终交集。</p></div></section>;
+}
 
 function CreateScreen(props: { config: RoomConfig; creatorName: string; creatorOrigin: string; creatorLocation: GeoPoint | null; locationStatus: string; locating: boolean; ideaMode: boolean; selectedInterests: string[]; avoid: string; setCreatorName: (value: string) => void; setCreatorOrigin: (value: string) => void; setIdeaMode: (value: boolean) => void; setSelectedInterests: (value: string[]) => void; setAvoid: (value: string) => void; onLocate: () => void; error: string; onChange: (config: RoomConfig) => void; onBack: () => void; onCreate: () => void; loading: boolean }) {
   const [error, setError] = useState("");
@@ -486,9 +534,8 @@ function CreateScreen(props: { config: RoomConfig; creatorName: string; creatorO
   const toggleInterest = (value: string) => props.setSelectedInterests(props.selectedInterests.includes(value) ? props.selectedInterests.filter((item) => item !== value) : [...props.selectedInterests, value].slice(-6));
   const submit = () => {
     if (!props.creatorName.trim() || !props.creatorOrigin.trim()) return setError("请填写昵称，并输入出发区域或使用系统定位");
-    if (!props.config.date || !props.config.startTime || !props.config.endTime) return setError("请完整填写日期和时间");
-    if (props.config.date < shanghaiDate()) return setError("日期不能早于今天");
-    if (props.config.endTime <= props.config.startTime) return setError("结束时间需要晚于开始时间");
+    if (!props.config.dateRange.start || !props.config.dateRange.end || !props.config.preferredPeriods.length) return setError("请选择日期范围和大概时段");
+    if (props.config.dateRange.start < shanghaiDate() || props.config.dateRange.end < props.config.dateRange.start) return setError("日期范围无效");
     props.onCreate();
   };
   return <section className="flow-page create-page">
@@ -496,7 +543,9 @@ function CreateScreen(props: { config: RoomConfig; creatorName: string; creatorO
     <ScreenTitle eyebrow="CREATE A REAL ROOM" title="先发一手灵感牌" detail="没想好也没关系：默认从全城跨类型随机发现；每个人稍后单独设置可接受的通勤上限。" />
     <div className="create-layout single-card"><div className="form-card">
       <fieldset><legend>这次想决定什么？</legend><div className="option-pair"><button className={props.config.kind === "activity" ? "selected" : ""} onClick={() => update("kind", "activity")}><b>✦</b><span>周末活动<small>娱乐、运动、手作、放松</small></span></button><button className={props.config.kind === "dining" ? "selected" : ""} onClick={() => update("kind", "dining")}><b>♨</b><span>一起聚餐<small>跨菜系随机发现</small></span></button></div></fieldset>
-      <div className="field-grid"><label><span>你的昵称</span><input className="form-control" value={props.creatorName} maxLength={18} onChange={(event) => props.setCreatorName(event.target.value)} placeholder="例如：Jay" /></label><label><span>城市</span><select className="form-control" value={props.config.city} onChange={(event) => update("city", event.target.value as CityName)}>{SUPPORTED_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}</select></label><label className="location-field"><span>从哪里出发</span><div className="location-input-row"><input className="form-control" value={props.creatorOrigin} maxLength={40} onChange={(event) => props.setCreatorOrigin(event.target.value)} placeholder="地铁站 / 商圈" /><button type="button" onClick={props.onLocate} disabled={props.locating}>{props.locating ? "定位中" : "⌖ 定位"}</button></div><small className={props.creatorLocation ? "location-ok" : ""}>{props.locationStatus}</small></label><label><span>日期</span><input className="form-control" type="date" min={shanghaiDate()} value={props.config.date} onChange={(event) => update("date", event.target.value)} /></label><label><span>开始时间</span><input className="form-control" type="time" value={props.config.startTime} onChange={(event) => update("startTime", event.target.value)} /></label><label><span>最晚结束</span><input className="form-control" type="time" value={props.config.endTime} onChange={(event) => update("endTime", event.target.value)} /></label></div>
+      <div className="field-grid"><label><span>你的昵称</span><input className="form-control" value={props.creatorName} maxLength={18} onChange={(event) => props.setCreatorName(event.target.value)} placeholder="例如：Jay" /></label><label><span>城市</span><select className="form-control" value={props.config.city} onChange={(event) => update("city", event.target.value as CityName)}>{SUPPORTED_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}</select></label><label className="location-field"><span>从哪里出发</span><div className="location-input-row"><input className="form-control" value={props.creatorOrigin} maxLength={40} onChange={(event) => props.setCreatorOrigin(event.target.value)} placeholder="地铁站 / 商圈" /><button type="button" onClick={props.onLocate} disabled={props.locating}>{props.locating ? "定位中" : "⌖ 定位"}</button></div><small className={props.creatorLocation ? "location-ok" : ""}>{props.locationStatus}</small></label><label><span>最早日期</span><input className="form-control" type="date" min={shanghaiDate()} value={props.config.dateRange.start} onChange={(event) => update("dateRange", { ...props.config.dateRange, start: event.target.value })} /></label><label><span>最晚日期</span><input className="form-control" type="date" min={props.config.dateRange.start} value={props.config.dateRange.end} onChange={(event) => update("dateRange", { ...props.config.dateRange, end: event.target.value })} /></label></div>
+      <fieldset><legend>大概什么时段？可多选</legend><div className="number-row schedule-choice-row">{Object.entries(PERIOD_LABELS).map(([value, label]) => <button type="button" key={value} className={props.config.preferredPeriods.includes(value as keyof typeof PERIOD_LABELS) ? "selected" : ""} onClick={() => update("preferredPeriods", props.config.preferredPeriods.includes(value as keyof typeof PERIOD_LABELS) ? props.config.preferredPeriods.filter((item) => item !== value) : [...props.config.preferredPeriods, value as keyof typeof PERIOD_LABELS])}>{label}</button>)}</div></fieldset>
+      <fieldset><legend>大概玩多久？</legend><div className="number-row duration-choice-row">{DURATION_OPTIONS.map((option) => <button type="button" key={String(option.value)} className={props.config.durationMinutes === option.value ? "selected" : ""} onClick={() => update("durationMinutes", option.value)}>{option.label}</button>)}</div><p className="privacy-note">具体开始和结束时间将在成员提交空闲时间后自动确定。</p></fieldset>
       <fieldset className="discovery-field"><legend>推荐方式</legend><div className="discovery-toggle"><button className={!props.ideaMode ? "selected" : ""} onClick={() => props.setIdeaMode(false)}><b>给我灵感</b><small>默认 · 跨类型随机发现</small></button><button className={props.ideaMode ? "selected" : ""} onClick={() => props.setIdeaMode(true)}><b>我有点想法</b><small>可选 1–6 个倾向</small></button></div>{props.ideaMode && <><div className="interest-cloud">{interests.map((interest) => <button key={interest} className={props.selectedInterests.includes(interest) ? "selected" : ""} onClick={() => toggleInterest(interest)}>{interest}</button>)}</div><label className="avoid-field"><span>这次明确不想要（可选）</span><input className="form-control" value={props.avoid} onChange={(event) => props.setAvoid(event.target.value)} placeholder={props.config.kind === "activity" ? "例如：不要景点、不要太吵" : "例如：不要连锁、不要辣"} /></label></>}</fieldset>
       <fieldset><legend>预计几个人？</legend><div className="number-row">{[2, 3, 4, 5, 6].map((number) => <button key={number} className={number === props.config.people ? "selected" : ""} onClick={() => update("people", number)}>{number}</button>)}</div></fieldset>
       {(error || props.error) && <p className="form-error" role="alert">{error || props.error}</p>}<button className="full-dark-button" onClick={submit} disabled={props.loading}>{props.loading ? "正在准备候选…" : `创建${props.config.kind === "dining" ? "聚餐" : "活动"}房间`} <span>→</span></button>
@@ -523,6 +572,8 @@ function JoinScreen({ room, loading, error, onJoin }: { room: JoinRoomDto; loadi
 
 function RoomScreen({ room, currentMember, syncing, error, onShare, onPreference, onRank, onRequestNextRound, onOpenAdvance }: { room: StoredRoom; currentMember: StoredMember | null; syncing: boolean; error: string; onShare: () => void; onPreference: () => void; onRank: () => void; onRequestNextRound: () => void; onOpenAdvance: () => void }) {
   const { config, meta } = room;
+  const availabilityCount = room.members.filter((member) => member.availability !== null).length;
+  const scheduleReady = Boolean(config.resolvedSchedule) && availabilityCount === room.members.length;
   const doneCount = room.members.filter((member) => member.submittedAt).length;
   const enough = doneCount >= 2;
   const allSubmitted = room.members.length > 0 && doneCount === room.members.length;
@@ -531,7 +582,7 @@ function RoomScreen({ room, currentMember, syncing, error, onShare, onPreference
   const isCreator = controls.isCreator;
   const requestCount = room.members.filter((member) => member.refreshRequestRound === room.currentRound).length;
   const canAdvance = controls.canAdvance;
-  return <section className="flow-page room-page"><div className="room-kicker"><span>{config.city} · {config.kind === "dining" ? "聚餐" : "活动"}</span><b>房间 {room.code}</b></div><ScreenTitle eyebrow={`${config.kind === "dining" ? "DINNER" : "WEEKEND"} IN ${config.city.toUpperCase()}`} title={roomTitle(config.kind)} detail={`${formatDate(config.date)} · ${config.startTime}–${config.endTime} · ${config.city}`} /><div className="data-audit-strip"><span className={`source-dot ${meta.mode}`} /><b>{room.candidates.length} 个候选 · {meta.label}</b><span>{room.members.length}/{config.people} 人已加入</span><span>{syncing ? "同步中" : "每 4 秒同步"}</span></div><div className="room-grid"><div className="room-main-card"><div className="room-card-head"><div><span>真实成员</span><strong>{doneCount}/{room.members.length} 已提交</strong></div><i>{allSubmitted && enough ? "可以计算真实交集" : "等待所有已加入成员提交"}</i></div><div className="member-list">{room.members.map((member) => <div key={member.id} className={member.submittedAt ? "member done" : "member pending"}><div className="avatar">{member.name.slice(0, 1).toUpperCase()}{member.submittedAt && <span>✓</span>}</div><div><b>{member.name}{member.id === currentMember?.id ? " · 你" : ""}</b><small>{member.origin} · {member.submittedAt ? "偏好已提交" : "等待提交"}</small></div><em>{member.submittedAt ? "完成" : "待完成"}</em></div>)}</div>{!currentMember?.submittedAt ? <button className="full-dark-button pulse" onClick={onPreference}>开始划这批候选 <span>→</span></button> : <div className="room-actions"><button className="quiet-button" onClick={onPreference}>修改我的偏好</button><button className="full-dark-button lime-button" onClick={onRank} disabled={!enough || !allSubmitted}>计算真实交集 <span>✦</span></button></div>}<p className="privacy-note">⌾ 位置用于候选范围和通勤估算；每个人的通勤上限仍会作为最终硬筛选。</p></div><aside className="invite-card"><span className="big-source-mark live">{room.code}</span><h3>把链接发给朋友</h3><p>对方不需要注册，填写昵称和大致出发地后就能独立选择。</p><button onClick={onShare}>复制房间链接 <span>↗</span></button><small>{room.members.length < config.people ? `还可加入 ${config.people - room.members.length} 人` : "房间人数已满"}</small>{error && <p className="form-error">{error}</p>}</aside></div><section className="round-status-card" aria-label="本轮协作状态"><div><span>共享卡池</span><b>第 {room.currentRound}/3 轮</b><small>{doneCount}/{room.members.length} 人已提交 · {requestCount} 人请求换一批</small></div>{room.currentRound >= 3 ? <p>已经完成三轮探索；若仍没有交集，系统会说明最需要调整的边界。</p> : canAdvance ? <button className="full-dark-button" onClick={onOpenAdvance}>根据全体反馈开启下一轮 <span>→</span></button> : refreshControl.visible ? <button className="round-request-button" aria-pressed={refreshControl.requested} onClick={onRequestNextRound}>{refreshControl.label}</button> : <p>{isCreator ? "全员提交后，才可以根据反馈开启下一轮。" : "提交本轮选择后，可以请求房主换一批。"}</p>}</section><div className="public-constraint"><b>本轮配置</b><span>{formatDate(config.date)} {config.startTime}–{config.endTime}</span><span>{config.city}市</span><span>{meta.commuteWindow || "全城探索"}</span><span>目标 {config.people} 人</span><i>{meta.focused ? `按想法：${meta.keywords?.join("、")}` : "探索模式 · 全城召回后按个人通勤上限筛选"}</i></div></section>;
+  return <section className="flow-page room-page"><div className="room-kicker"><span>{config.city} · {config.kind === "dining" ? "聚餐" : "活动"}</span><b>房间 {room.code}</b></div><ScreenTitle eyebrow={`${config.kind === "dining" ? "DINNER" : "WEEKEND"} IN ${config.city.toUpperCase()}`} title={roomTitle(config.kind)} detail={scheduleReady ? `${formatDate(config.date)} · ${config.startTime}–${config.endTime} · ${config.city}` : `${formatDate(config.dateRange.start)} 至 ${formatDate(config.dateRange.end)} · 等待共同时间`} /><div className="data-audit-strip"><span className={`source-dot ${meta.mode}`} /><b>{room.candidates.length} 个候选 · {meta.label}</b><span>{room.members.length}/{config.people} 人已加入</span><span>{availabilityCount}/{room.members.length} 人已提交时间</span><span>{syncing ? "同步中" : "每 4 秒同步"}</span></div><div className="room-grid"><div className="room-main-card"><div className="room-card-head"><div><span>真实成员</span><strong>{doneCount}/{room.members.length} 已提交偏好</strong></div><i>{scheduleReady ? "共同时间已确定" : "等待成员提交空闲时间"}</i></div><div className="member-list">{room.members.map((member) => <div key={member.id} className={member.submittedAt ? "member done" : "member pending"}><div className="avatar">{member.name.slice(0, 1).toUpperCase()}{member.availability !== null && <span>✓</span>}</div><div><b>{member.name}{member.id === currentMember?.id ? " · 你" : ""}</b><small>{member.origin} · {member.availability !== null ? member.submittedAt ? "时间与偏好已提交" : "空闲时间已提交" : "等待空闲时间"}</small></div><em>{member.availability !== null ? "时间完成" : "待提交"}</em></div>)}</div>{!scheduleReady ? <p className="form-error">所有已加入成员提交空闲时间后，才能开始选择地点。</p> : !currentMember?.submittedAt ? <button className="full-dark-button pulse" onClick={onPreference}>开始划这批候选 <span>→</span></button> : <div className="room-actions"><button className="quiet-button" onClick={onPreference}>修改我的偏好</button><button className="full-dark-button lime-button" onClick={onRank} disabled={!enough || !allSubmitted}>计算真实交集 <span>✦</span></button></div>}<p className="privacy-note">⌾ 具体空闲时间仅用于服务端求交集，不会展示给其他成员。</p></div><aside className="invite-card"><span className="big-source-mark live">{room.code}</span><h3>把链接发给朋友</h3><p>对方不需要注册，填写昵称、出发地与空闲时间后即可参与。</p><button onClick={onShare}>复制房间链接 <span>↗</span></button><small>{room.members.length < config.people ? `还可加入 ${config.people - room.members.length} 人` : "房间人数已满"}</small>{error && <p className="form-error">{error}</p>}</aside></div><section className="round-status-card" aria-label="本轮协作状态"><div><span>共享卡池</span><b>第 {room.currentRound}/3 轮</b><small>{doneCount}/{room.members.length} 人已提交 · {requestCount} 人请求换一批</small></div>{room.currentRound >= 3 ? <p>已经完成三轮探索；若仍没有交集，系统会说明最需要调整的边界。</p> : canAdvance ? <button className="full-dark-button" onClick={onOpenAdvance}>根据全体反馈开启下一轮 <span>→</span></button> : refreshControl.visible ? <button className="round-request-button" aria-pressed={refreshControl.requested} onClick={onRequestNextRound}>{refreshControl.label}</button> : <p>{isCreator ? "全员提交后，才可以根据反馈开启下一轮。" : "提交本轮选择后，可以请求房主换一批。"}</p>}</section><div className="public-constraint"><b>本轮配置</b><span>{scheduleReady ? `${formatDate(config.date)} ${config.startTime}–${config.endTime}` : `${formatDate(config.dateRange.start)} 至 ${formatDate(config.dateRange.end)}`}</span><span>{config.city}市</span><span>{config.preferredPeriods.map((item) => PERIOD_LABELS[item]).join("、")}</span><span>目标 {config.people} 人</span><i>{meta.focused ? `按想法：${meta.keywords?.join("、")}` : "探索模式 · 全城召回后按个人通勤上限筛选"}</i></div></section>;
 }
 
 function PreferenceSetupScreen(props: { config: RoomConfig; budget: string; commute: string; setting: string; setBudget: (value: string) => void; setCommute: (value: string) => void; setSetting: (value: string) => void; onBack: () => void; onContinue: () => void }) {
@@ -588,5 +639,5 @@ function ResultsScreen({ config, room, currentMember, ranked, meta, members, aiE
 function LockedScreen({ config, result, onCalendar, onReset, onShare }: { config: RoomConfig; result: RankedCandidate; onCalendar: () => void; onReset: () => void; onShare: () => void }) {
   const day = config.date.slice(-2); const month = Number(config.date.slice(5, 7));
   const openMap = () => window.open(result.source.url || `https://uri.amap.com/search?keyword=${encodeURIComponent(config.city + result.name)}`, "_blank", "noopener,noreferrer");
-  return <section className="flow-page locked-page"><div className="locked-burst"><span>✓</span></div><div className="locked-title"><span>PLAN LOCKED</span><h1>本轮方案已锁定</h1><p>这张行动卡可以直接发到群里。</p></div><article className="action-card"><div className="action-map action-photo"><img src={result.image} alt={result.name} referrerPolicy="no-referrer" /><div className="image-shade" /><span className="map-pin">✓</span><i>{config.city}</i><i>{result.district}</i></div><div className="action-content"><div className="action-date"><strong>{day}</strong><span>{month} 月<small>{formatDate(config.date).split("日")[1]}</small></span></div><div className="action-name"><span>最佳平衡方案 · {result.source.label}</span><h2>{result.name}</h2><p>{result.source.mode === "live" ? result.address : `${config.city} · 演示候选`}</p></div><div className="locked-score">{result.groupFit}<small>GROUP FIT</small></div><div className="action-facts"><span><i>◷</i><b>{config.startTime} 集合</b><small>{config.endTime} 前结束</small></span><span><i>¥</i><b>{result.priceLabel}</b><small>本轮预算匹配</small></span><span><i>⌖</i><b>{result.meanTravelMinutes ? `人均约 ${result.meanTravelMinutes} 分钟` : "距离未参与"}</b><small>从成员出发区域估算</small></span></div><div className="action-buttons"><button onClick={openMap}>⌖ {result.source.mode === "live" ? "打开地点" : "在高德中搜索"}</button><button onClick={onCalendar}>＋ 加入日历</button><button onClick={onShare}>↗ 分享房间</button></div></div></article><button className="restart-button" onClick={onReset}>创建新房间 ↺</button></section>;
+  return <section className="flow-page locked-page"><div className="locked-burst"><span>✓</span></div><div className="locked-title"><span>PLAN LOCKED</span><h1>本轮方案已锁定</h1><p>这张行动卡可以直接发到群里。</p></div><article className="action-card"><div className="action-map action-photo"><img src={result.image} alt={result.name} referrerPolicy="no-referrer" /><div className="image-shade" /><span className="map-pin">✓</span><i>{config.city}</i><i>{result.district}</i></div><div className="action-content"><div className="action-date"><strong>{day}</strong><span>{month} 月<small>{formatDate(config.date).split("日")[1]}</small></span></div><div className="action-name"><span>群体最优解 · {result.source.label}</span><h2>{result.name}</h2><p>{result.source.mode === "live" ? result.address : `${config.city} · 演示候选`}</p></div><div className="locked-score">{result.groupFit}<small>GROUP FIT</small></div><div className="action-facts"><span><i>◷</i><b>{config.startTime} 集合</b><small>{config.endTime} 前结束</small></span><span><i>¥</i><b>{result.priceLabel}</b><small>本轮预算匹配</small></span><span><i>⌖</i><b>{result.meanTravelMinutes ? `人均约 ${result.meanTravelMinutes} 分钟` : "距离未参与"}</b><small>从成员出发区域估算</small></span></div><div className="action-buttons"><button onClick={openMap}>⌖ {result.source.mode === "live" ? "打开地点" : "在高德中搜索"}</button><button onClick={onCalendar}>＋ 加入日历</button><button onClick={onShare}>↗ 分享房间</button></div></div></article><button className="restart-button" onClick={onReset}>创建新房间 ↺</button></section>;
 }

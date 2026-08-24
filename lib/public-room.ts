@@ -8,13 +8,17 @@ export type JoinRoomDto = {
   date: string;
   startTime: string;
   endTime: string;
+  dateRange: StoredRoom["config"]["dateRange"];
+  preferredPeriods: StoredRoom["config"]["preferredPeriods"];
+  durationMinutes: StoredRoom["config"]["durationMinutes"];
+  resolvedSchedule: StoredRoom["config"]["resolvedSchedule"];
   targetCount: number;
   joinedCount: number;
   joinedNames: string[];
   status: "open" | "full";
 };
 
-type PeerMember = Omit<StoredMember, "privateCandidates" | "nominatedCandidate">;
+type PeerMember = Omit<StoredMember, "privateCandidates" | "nominatedCandidate" | "availability"> & { availabilitySubmitted: boolean };
 export type ParticipantRoomDto = Omit<StoredRoom, "members"> & { members: Array<StoredMember | PeerMember> };
 
 /** Safe for anyone who knows the six-character code. */
@@ -27,6 +31,10 @@ export function toJoinRoom(room: StoredRoom): JoinRoomDto {
     date: room.config.date,
     startTime: room.config.startTime,
     endTime: room.config.endTime,
+    dateRange: room.config.dateRange,
+    preferredPeriods: room.config.preferredPeriods,
+    durationMinutes: room.config.durationMinutes,
+    resolvedSchedule: room.config.resolvedSchedule,
     targetCount: room.config.people,
     joinedCount: room.members.length,
     joinedNames: room.members.map((member) => member.name),
@@ -40,10 +48,11 @@ export function toParticipantRoom(room: StoredRoom, memberId: string): Participa
     ...room,
     members: room.members.map((member) => {
       if (member.id === memberId) return member;
-      const { privateCandidates, nominatedCandidate, ...peer } = member;
+      const { privateCandidates, nominatedCandidate, availability, ...peer } = member;
       void privateCandidates;
       void nominatedCandidate;
-      return peer;
+      void availability;
+      return { ...peer, availabilitySubmitted: member.availability !== null };
     }),
   };
 }

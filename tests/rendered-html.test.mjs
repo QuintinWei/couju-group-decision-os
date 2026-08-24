@@ -30,8 +30,8 @@ test("server-renders the Couju product landing page", async () => {
   assert.match(html, /<title>凑局 Couju — Group Decision OS<\/title>/i);
   assert.match(html, /不是猜一个答案/);
   assert.match(html, /开始创建/);
-  assert.match(html, /六城地点已上线/);
-  assert.match(html, /上海 · 北京 · 深圳/);
+  assert.match(html, /十城地点已上线/);
+  assert.match(html, /南京 · 重庆 · 苏州 · 合肥/);
   assert.doesNotMatch(html, /上海首发|Beta|数据模式全程可见/);
   assert.match(html, /food-yunnan\.jpg/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
@@ -49,7 +49,8 @@ test("keeps provenance, DeepSeek extraction, and deterministic ranking in the pr
   assert.match(page, /\/api\/candidates/);
   assert.match(page, /\/api\/preferences/);
   assert.match(page, /type="date"/);
-  assert.match(page, /type="time"/);
+  assert.doesNotMatch(page, /type="time"/);
+  assert.match(page, /每格 30 分钟/);
   assert.match(page, /rankCandidates/);
   assert.match(page, /规则降级/);
   assert.match(page, /手输地铁站或商圈也会参与通勤计算/);
@@ -116,8 +117,8 @@ test("candidate endpoint keeps a citywide pool and leaves commute limits to memb
   assert.ok(payload.candidates.every((candidate) => candidate.source.mode === "demo"));
 });
 
-test("all six cities keep a complete candidate flow", async () => {
-  for (const city of ["上海", "北京", "深圳", "杭州", "成都", "广州"]) {
+test("all ten cities keep a complete candidate flow", async () => {
+  for (const city of ["上海", "北京", "广州", "深圳", "杭州", "成都", "南京", "重庆", "苏州", "合肥"]) {
     const response = await fetchFromApp(`/api/candidates?city=${encodeURIComponent(city)}&kind=dining`);
     assert.equal(response.status, 200);
     const payload = await response.json();
@@ -149,7 +150,7 @@ test("the UI exposes consent-based location, city sync, and feedback-driven refr
   assert.doesNotMatch(page, /划卡后，换一批会参考你的真实反馈/);
   assert.doesNotMatch(page, /活动不再混入普通景点/);
   assert.doesNotMatch(page, /随机，但不是乱推/);
-  assert.match(page, /全城探索/);
+  assert.match(page, /全城召回/);
   assert.doesNotMatch(page, /<legend>候选范围<\/legend>/);
   assert.match(page, /requestBrowserPosition/);
   assert.doesNotMatch(page, /fetch\("\/api\/rooms", \{ method: "PATCH"/);
@@ -158,8 +159,9 @@ test("the UI exposes consent-based location, city sync, and feedback-driven refr
   assert.match(page, /先设定你的选择边界/);
   assert.match(page, /30 分钟.*60 分钟.*1\.5 小时.*不限/);
   assert.match(page, /没有额外要求也可以直接提交/);
-  assert.match(page, /setSelectedStrategy/);
-  assert.match(page, /本轮三种策略得出同一方案/);
+  assert.doesNotMatch(page, /setSelectedStrategy/);
+  assert.doesNotMatch(page, /本轮三种策略得出同一方案/);
+  assert.match(page, /群体最优解/);
   assert.match(page, /onLock\(selected\)/);
   assert.doesNotMatch(page, /strategy: "learn"/);
 });

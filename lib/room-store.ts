@@ -4,6 +4,7 @@ import { aggregatePrivateCategoryPenalties, aggregateRoundFeedback, type RoundFe
 import { allCurrentMembersSubmitted } from "./round-api";
 import { hasSubmittedMembersAtAdvanceBoundary } from "./round-store-guard";
 import { validateMemberSubmission } from "./member-submission";
+import { resolveGroupSchedule, type AvailabilityInterval, type ResolvedSchedule } from "./scheduling";
 
 export type CandidateMeta = {
   mode: "live" | "demo";
@@ -32,6 +33,7 @@ export type StoredMember = {
   extraction: PreferenceExtraction | null;
   choices: Record<string, Choice>;
   submittedAt: string | null;
+  availability: AvailabilityInterval[] | null;
   refreshRequestRound: number | null;
   privateCandidates: Candidate[];
   nominatedCandidate: Candidate | null;
@@ -72,6 +74,8 @@ type RoomRow = {
   date: string;
   start_time: string;
   end_time: string;
+  schedule_config_json?: string | null;
+  resolved_schedule_json?: string | null;
   target_people: number;
   candidates_json: string;
   candidate_meta_json: string;
@@ -94,6 +98,7 @@ type MemberRow = {
   extraction_json: string | null;
   choices_json: string | null;
   submitted_at: string | null;
+  availability_json?: string | null;
   refresh_request_round?: number | null;
   private_candidates_json?: string | null;
   nominated_candidate_json?: string | null;
@@ -131,8 +136,8 @@ export async function createStoredRoom(input: {
   const now = new Date().toISOString();
 
   await db.batch([
-    db.prepare("INSERT INTO rooms (code, city, kind, date, start_time, end_time, target_people, candidates_json, candidate_meta_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(code, input.config.city, input.config.kind, input.config.date, input.config.startTime, input.config.endTime, input.config.people, JSON.stringify(input.candidates), JSON.stringify(input.meta), now, now),
+    db.prepare("INSERT INTO rooms (code, city, kind, date, start_time, end_time, schedule_config_json, resolved_schedule_json, target_people, candidates_json, candidate_meta_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(code, input.config.city, input.config.kind, input.config.dateRange.start, "", "", JSON.stringify({ dateRange: input.config.dateRange, preferredPeriods: input.config.preferredPeriods, durationMinutes: input.config.durationMinutes }), null, input.config.people, JSON.stringify(input.candidates), JSON.stringify(input.meta), now, now),
     db.prepare("INSERT INTO members (id, room_code, token_hash, name, origin, origin_lng, origin_lat, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(memberId, code, tokenHash, input.creatorName, input.creatorOrigin, input.creatorOriginLocation?.lng ?? null, input.creatorOriginLocation?.lat ?? null, now, now),
   ]);
@@ -144,15 +149,19 @@ export async function getStoredRoom(code: string): Promise<StoredRoom | null> {
   const db = getD1();
   const room = await db.prepare("SELECT * FROM rooms WHERE code = ? LIMIT 1").bind(code).first<RoomRow>();
   if (!room) return null;
-  const memberRows = await db.prepare("SELECT id, name, origin, origin_lng, origin_lat, budget_label, commute_label, setting, note, extraction_json, choices_json, submitted_at, refresh_request_round, private_candidates_json, nominated_candidate_json FROM members WHERE room_code = ? ORDER BY created_at ASC").bind(code).all<MemberRow>();
+  const memberRows = await db.prepare("SELECT id, name, origin, origin_lng, origin_lat, budget_label, commute_label, setting, note, extraction_json, choices_json, submitted_at, availability_json, refresh_request_round, private_candidates_json, nominated_candidate_json FROM members WHERE room_code = ? ORDER BY created_at ASC").bind(code).all<MemberRow>();
+  const scheduleConfig = safeJson<{ dateRange: RoomConfig["dateRange"]; preferredPeriods: RoomConfig["preferredPeriods"]; durationMinutes: RoomConfig["durationMinutes"] }>(room.schedule_config_json ?? null, { dateRange: { start: room.date, end: room.date }, preferredPeriods: ["evening"], durationMinutes: null });
+  const resolvedSchedule = safeJson<ResolvedSchedule | null>(room.resolved_schedule_json ?? null, null);
   return {
     code: room.code,
     config: {
       city: room.city as RoomConfig["city"],
       kind: room.kind as RoomConfig["kind"],
-      date: room.date,
-      startTime: room.start_time,
-      endTime: room.end_time,
+      ...scheduleConfig,
+      resolvedSchedule,
+      date: resolvedSchedule?.startAt.slice(0, 10) || scheduleConfig.dateRange.start,
+      startTime: resolvedSchedule?.startAt.slice(11, 16) || "",
+      endTime: resolvedSchedule?.endAt.slice(11, 16) || "",
       people: room.target_people,
     },
     candidates: safeJson<Candidate[]>(room.candidates_json, []),
@@ -171,6 +180,7 @@ export async function getStoredRoom(code: string): Promise<StoredRoom | null> {
       extraction: safeJson<PreferenceExtraction | null>(member.extraction_json, null),
       choices: safeJson<Record<string, Choice>>(member.choices_json, {}),
       submittedAt: member.submitted_at,
+      availability: safeJson<AvailabilityInterval[] | null>(member.availability_json ?? null, null),
       refreshRequestRound: member.refresh_request_round ?? null,
       privateCandidates: safeJson<Candidate[]>(member.private_candidates_json ?? null, []),
       nominatedCandidate: safeJson<Candidate | null>(member.nominated_candidate_json ?? null, null),
@@ -198,6 +208,7 @@ export async function joinStoredRoom(code: string, name: string, origin: string,
   const inserted = await db.prepare("INSERT INTO members (id, room_code, token_hash, name, origin, origin_lng, origin_lat, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM members WHERE room_code = ?) < (SELECT target_people FROM rooms WHERE code = ?)")
     .bind(id, code, tokenHash, name, origin, originLocation?.lng ?? null, originLocation?.lat ?? null, now, now, code, code).run();
   if ((inserted.meta.changes ?? 0) < 1) throw new Error("ROOM_FULL");
+  await db.prepare("UPDATE rooms SET resolved_schedule_json = NULL, updated_at = ? WHERE code = ?").bind(now, code).run();
   return { id, token };
 }
 
@@ -227,6 +238,27 @@ export async function updateStoredMember(input: {
   if ((updated.meta.changes ?? 0) !== 1) return { ok: false, code: "STALE_ROUND" };
   await db.prepare("UPDATE rooms SET updated_at = ? WHERE code = ? AND current_round = ?").bind(now, input.roomCode, input.expectedRound).run();
   return { ok: true };
+}
+
+export async function updateStoredAvailability(input: MemberAuth & { expectedRound: number; intervals: AvailabilityInterval[] }) {
+  const member = await authenticateMember(input);
+  if (!member) return { ok: false as const, code: "UNAUTHORIZED" as const };
+  const room = await getStoredRoom(input.roomCode);
+  if (!room || room.currentRound !== input.expectedRound) return { ok: false as const, code: "STALE_ROUND" as const };
+  const nextMembers = room.members.map((item) => ({ memberId: item.id, intervals: item.id === input.memberId ? input.intervals : item.availability }));
+  let resolution;
+  try { resolution = resolveGroupSchedule(room.config, nextMembers); }
+  catch { return { ok: false as const, code: "INVALID_AVAILABILITY" as const }; }
+  const resolved = resolution.status === "resolved" ? resolution.schedule : null;
+  const now = new Date().toISOString();
+  const results = await getD1().batch([
+    getD1().prepare("UPDATE members SET availability_json = ?, updated_at = ? WHERE id = ? AND room_code = ? AND EXISTS (SELECT 1 FROM rooms WHERE code = ? AND current_round = ?)")
+      .bind(JSON.stringify(input.intervals), now, input.memberId, input.roomCode, input.roomCode, input.expectedRound),
+    getD1().prepare("UPDATE rooms SET resolved_schedule_json = ?, updated_at = ? WHERE code = ? AND current_round = ?")
+      .bind(resolved ? JSON.stringify(resolved) : null, now, input.roomCode, input.expectedRound),
+  ]);
+  if ((results[0].meta.changes ?? 0) !== 1) return { ok: false as const, code: "STALE_ROUND" as const };
+  return { ok: true as const, resolution };
 }
 
 export async function setRefreshRequest(input: MemberAuth & { requested: boolean; expectedRound: number }): Promise<RoundMutationResult> {
