@@ -40,6 +40,7 @@ export type RoomConfig = {
 
 export type Candidate = {
   id: string;
+  segment?: "nomination" | "learned" | "explore";
   kind: DecisionKind;
   city: CityName;
   type: string;
