@@ -22,6 +22,7 @@ import {
 } from "../lib/couju";
 import { requestBrowserPosition } from "../lib/browser-location";
 import type { StoredMember, StoredRoom } from "../lib/room-store";
+import { canRequestPrivateDiscovery, privateDiscoveryFailure, privateDiscoveryRequestPlan, privateNominationAction, togglePrivateNomination, type RoundClientAction } from "../lib/private-discovery-flow";
 
 type CandidateMeta = { mode: DataMode; label: string; fetchedAt: string; disclaimer?: string; keywords?: string[]; avoid?: string[]; page?: number; center?: GeoPoint | null; seed?: string; focused?: boolean; strategy?: "explore" | "focused" | "learn"; commuteWindow?: string };
 type AiExplanation = { headline: string; reasoning: string; tradeoff: string };
@@ -276,7 +277,7 @@ export default function Home() {
     await refreshRoom(roomCode, true);
   };
 
-  const postRoundAction = async (body: { action: "request" | "private-discovery" | "nominate"; requested?: boolean; candidateId?: string | null }) => {
+  const postRoundAction = async (body: RoundClientAction) => {
     if (!identity || !roomCode || !room) throw new Error("成员身份已失效，请重新加入");
     const response = await fetch("/api/rounds", {
       method: "POST",
@@ -291,15 +292,17 @@ export default function Home() {
   const requestPrivateDiscovery = async () => {
     setPrivateActionLoading(true); setPrivateError(""); setParseError("");
     try {
-      await saveCurrentChoices();
-      await postRoundAction({ action: "request", requested: true });
-      const payload = await postRoundAction({ action: "private-discovery" });
+      const [first, request, discovery] = privateDiscoveryRequestPlan();
+      if (first === "save-choices") await saveCurrentChoices();
+      await postRoundAction(request);
+      const payload = await postRoundAction(discovery);
       if (!Array.isArray(payload.candidates) || payload.candidates.length !== 3) throw new Error("私人发现未能返回三张候选，请重试");
       setPrivateCandidates(payload.candidates);
       setPrivateNominationId(null);
       setStage("private-discovery");
     } catch (error) {
-      setParseError(error instanceof Error ? error.message : "私人发现暂时不可用，请重试");
+      const failure = privateDiscoveryFailure(error instanceof Error ? error.message : "私人发现暂时不可用，请重试");
+      setParseError(failure.message); setStage(failure.stage);
     } finally {
       setPrivateActionLoading(false);
     }
@@ -308,7 +311,7 @@ export default function Home() {
   const submitPrivateNomination = async (candidateId: string | null) => {
     setPrivateActionLoading(true); setPrivateError("");
     try {
-      await postRoundAction({ action: "nominate", candidateId });
+      await postRoundAction(privateNominationAction(candidateId));
       setPrivateNominationId(candidateId);
       await refreshRoom(roomCode, true);
       setStage("room");
@@ -383,7 +386,7 @@ export default function Home() {
     {stage === "room" && room && <RoomScreen room={room} currentMember={currentMember} syncing={syncing} error={roomError} onShare={copyShare} onPreference={() => { setCardIndex(0); setSwipes(currentMember?.choices ?? {}); setBudget(currentMember?.budgetLabel || budget); setCommute(currentMember?.commuteLabel || commute); setSetting(currentMember?.setting || setting); setNote(currentMember?.note || ""); setExtraction(currentMember?.extraction ?? null); setPrivateCandidates([]); setPrivateNominationId(null); setPrivateError(""); setStage("setup"); }} onRank={startRanking} />}
     {stage === "setup" && <PreferenceSetupScreen config={config} budget={budget} commute={commute} setting={setting} setBudget={setBudget} setCommute={setCommute} setSetting={setSetting} onBack={() => setStage("room")} onContinue={() => setStage("swipe")} />}
     {stage === "swipe" && <SwipeScreen config={config} cards={candidates} index={cardIndex} choices={swipes} travelMinutes={estimateTravelBetween(currentMember?.originLocation ?? null, candidates[cardIndex]?.location ?? null) ?? candidates[cardIndex]?.estimatedTravelMinutes ?? null} onChoose={chooseCard} onBack={() => setStage("setup")} onPointerDown={(x) => { pointerStart.current = x; }} onPointerUp={(x) => { if (pointerStart.current === null) return; const delta = x - pointerStart.current; if (delta > 65) chooseCard("like"); else if (delta < -65) chooseCard("no"); pointerStart.current = null; }} />}
-    {stage === "constraints" && <PreferenceDetailsScreen config={config} note={note} extraction={extraction} loading={parseLoading} submitting={syncing} error={parseError} allRejected={candidates.length === 12 && candidates.every((candidate) => swipes[candidate.id] === "no")} privateLoading={privateActionLoading} setNote={(value) => { setNote(value); setExtraction(null); }} onParse={parsePreference} onRemoveSignal={removeSignal} onBack={() => setStage("swipe")} onConfirm={confirmConstraints} onRequestPrivate={requestPrivateDiscovery} />}
+    {stage === "constraints" && <PreferenceDetailsScreen config={config} note={note} extraction={extraction} loading={parseLoading} submitting={syncing} error={parseError} allRejected={canRequestPrivateDiscovery(candidates, swipes)} privateLoading={privateActionLoading} setNote={(value) => { setNote(value); setExtraction(null); }} onParse={parsePreference} onRemoveSignal={removeSignal} onBack={() => setStage("swipe")} onConfirm={confirmConstraints} onRequestPrivate={requestPrivateDiscovery} />}
     {stage === "private-discovery" && room && currentMember && <PrivateDiscoveryScreen config={config} cards={privateCandidates} selectedId={privateNominationId} member={currentMember} loading={privateActionLoading} error={privateError} onSelect={setPrivateNominationId} onSubmit={() => submitPrivateNomination(privateNominationId)} onSkip={() => submitPrivateNomination(null)} onBack={() => setStage("constraints")} />}
     {stage === "ranking" && <RankingScreen config={config} step={rankingStep} candidates={candidates} ranked={ranked} meta={candidateMeta} />}
     {stage === "results" && <ResultsScreen config={config} ranked={ranked} meta={candidateMeta} members={readyMembers} aiExplanation={aiExplanation} onVeto={(selected) => { setVetoTarget(selected); setVetoOpen(true); }} onLock={(selected) => { setLockedResult(selected); setStage("locked"); }} onAdjust={() => setStage("setup")} />}
@@ -462,7 +465,7 @@ function PrivateDiscoveryScreen({ config, cards, selectedId, member, loading, er
   return <section className="flow-page private-discovery-page"><button className="back-button" onClick={onBack} disabled={loading}>← 返回补充要求</button><ScreenTitle eyebrow="PRIVATE DISCOVERY" title="再给你三张，只由你决定" detail="这不是最终结果：最多提名一张，下一轮会交给所有成员共同评价。" /><div className="private-notice" role="status"><span>🔒</span><b>仅你可见 · 提名后进入下一轮共享评选</b><small>不会在当前房间候选或同步数据中展示</small></div><div className="private-card-grid">{cards.map((card) => {
     const selected = selectedId === card.id;
     const minutes = estimateTravelBetween(member.originLocation, card.location) ?? card.estimatedTravelMinutes ?? null;
-    return <article key={card.id} className={`private-card ${selected ? "selected" : ""}`}><img src={card.image} alt="" aria-hidden="true" referrerPolicy="no-referrer" /><div className="private-card-content"><span>{card.matchedInterest || card.type}</span><h2>{card.name}</h2><p>{card.priceLabel} · {card.durationLabel}</p><small>{minutes ? `从你的出发地约 ${minutes} 分钟` : "你的通勤时间待确认"}</small><button type="button" aria-pressed={selected} onClick={() => onSelect(selected ? null : card.id)}>{selected ? "已选中，取消提名" : "提名这张"}</button></div></article>;
+    return <article key={card.id} className={`private-card ${selected ? "selected" : ""}`}><img src={card.image} alt="" aria-hidden="true" referrerPolicy="no-referrer" /><div className="private-card-content"><span>{card.matchedInterest || card.type}</span><h2>{card.name}</h2><p>{card.priceLabel} · {card.durationLabel}</p><small>{minutes ? `从你的出发地约 ${minutes} 分钟` : "你的通勤时间待确认"}</small><button type="button" aria-pressed={selected} onClick={() => onSelect(togglePrivateNomination(selectedId, card.id))}>{selected ? "已选中，取消提名" : "提名这张"}</button></div></article>;
   })}</div>{error && <p className="form-error private-error" role="alert">{error}</p>}<div className="private-discovery-actions"><button className="confirm-preference" onClick={onSubmit} disabled={loading || !selectedId}>{loading ? "正在提交…" : "提名进入下一轮"} <span>→</span></button><button className="private-secondary-button" onClick={onSkip} disabled={loading}>三张都不合适，跳过</button></div><p className="private-discovery-footnote">{config.kind === "dining" ? "餐厅" : "活动"}卡只会作为下一轮共享卡池的一部分，不会跳过其他成员的选择。</p></section>;
 }
 

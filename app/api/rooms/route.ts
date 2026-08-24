@@ -1,5 +1,6 @@
 import { SUPPORTED_CITIES, type Candidate, type RoomConfig } from "../../../lib/couju";
 import { geocodeOrigin } from "../../../lib/amap";
+import { toPublicRoom } from "../../../lib/public-room";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ export async function GET(request: Request) {
     const { getStoredRoom } = await loadRoomStore();
     const room = await getStoredRoom(code);
     if (!room) return Response.json({ error: "没有找到这个房间" }, { status: 404 });
-    return Response.json({ room }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ room: toPublicRoom(room) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("[rooms:get]", error);
     return Response.json({ error: "房间服务暂时不可用" }, { status: 503 });
