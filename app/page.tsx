@@ -21,6 +21,7 @@ import {
   type Stage,
 } from "../lib/couju";
 import { requestBrowserPosition } from "../lib/browser-location";
+import { synchronizeDetectedLocation } from "../lib/location-sync";
 import type { StoredMember, StoredRoom } from "../lib/room-store";
 import type { JoinRoomDto } from "../lib/public-room";
 import { diagnoseRoundConflict } from "../lib/rounds";
@@ -88,6 +89,7 @@ function roomTitle(kind: DecisionKind) {
 export default function Home() {
   const [stage, setStage] = useState<ClientStage>("home");
   const [config, setConfig] = useState<RoomConfig>(() => createDefaultConfig());
+  const configRef = useRef(config);
   const [candidates, setCandidates] = useState<Candidate[]>(() => getDemoCandidates("上海", "dining"));
   const [candidateMeta, setCandidateMeta] = useState<CandidateMeta>({ mode: "demo", label: "凑局演示候选库", fetchedAt: "2026-08-21T00:00:00.000Z", disclaimer: "当前为演示候选，不代表实时商户、价格或可订状态。" });
   const [candidateLoading, setCandidateLoading] = useState(false);
@@ -137,6 +139,8 @@ export default function Home() {
   const mainResult = ranked[0] ?? null;
   const currentMember = room?.members.find((member) => member.id === identity?.id) ?? null;
   const readyMembers = room?.members.filter((member) => member.submittedAt) ?? [];
+
+  useEffect(() => { configRef.current = config; }, [config]);
 
   useEffect(() => {
     if (stage !== "ranking") return;
@@ -218,7 +222,7 @@ export default function Home() {
   const updateConfig = (next: RoomConfig) => {
     const kindChanged = next.kind !== config.kind;
     const cityChanged = next.city !== config.city;
-    setConfig(next);
+    configRef.current = next; setConfig(next);
     if (cityChanged) { setCreatorLocation(null); setLocationStatus("城市已更改，请重新输入出发区域或使用定位"); }
     if (!kindChanged) return;
     setBudget(next.kind === "dining" ? "≤ ¥150" : "≤ ¥200");
@@ -244,10 +248,11 @@ export default function Home() {
         const payload = await response.json() as LocationResponse;
         if (!response.ok || !payload.location) throw new Error(payload.error || "暂时无法识别当前位置");
         const detectedCity = typeof payload.city === "string" && SUPPORTED_CITIES.includes(payload.city as CityName) ? payload.city as CityName : null;
+        const synchronized = synchronizeDetectedLocation(configRef.current, { city: detectedCity, location: payload.location, label: payload.label || "当前位置（估算）" });
         setCreatorLocation(payload.location);
         setCreatorOrigin(payload.label || "当前位置（估算）");
-        if (detectedCity && detectedCity !== config.city) {
-          setConfig((current) => ({ ...current, city: detectedCity }));
+        if (detectedCity && detectedCity !== configRef.current.city) {
+          configRef.current = synchronized.config; setConfig(synchronized.config);
           setLocationStatus(`已定位 · 已自动切换到${detectedCity}，会用于你的通勤估算`);
         } else if (detectedCity) {
           setLocationStatus("已定位 · 会用于你的通勤估算");
@@ -260,8 +265,8 @@ export default function Home() {
     }).finally(() => setLocating(false));
   };
 
-  const loadCandidates = async (input: { location: GeoPoint; strategy: "explore" | "focused" | "learn"; interests?: string[]; avoid?: string[]; exclude?: string[]; page?: number }) => {
-    const query = new URLSearchParams({ city: config.city, kind: config.kind, strategy: input.strategy, seed: crypto.randomUUID(), location: `${input.location.lng},${input.location.lat}`, page: String(input.page || 1) });
+  const loadCandidates = async (input: { city: CityName; kind: DecisionKind; location: GeoPoint; strategy: "explore" | "focused" | "learn"; interests?: string[]; avoid?: string[]; exclude?: string[]; page?: number }) => {
+    const query = new URLSearchParams({ city: input.city, kind: input.kind, strategy: input.strategy, seed: crypto.randomUUID(), location: `${input.location.lng},${input.location.lat}`, page: String(input.page || 1) });
     if (input.interests?.length) query.set("interests", input.interests.join(","));
     if (input.avoid?.length) query.set("avoid", input.avoid.join(","));
     if (input.exclude?.length) query.set("exclude", input.exclude.join(","));
@@ -274,10 +279,11 @@ export default function Home() {
   const createRoom = async () => {
     setCandidateLoading(true); setRoomError(""); setExcludedIds([]); setAppliedVetoReason(""); setSwipes({}); setCardIndex(0);
     try {
+      const activeConfig = configRef.current;
       const resolved = creatorLocation ? { location: creatorLocation, label: creatorOrigin } : await resolveOrigin(creatorOrigin);
       setCreatorLocation(resolved.location); setLocationStatus(`已识别 ${resolved.label} · 会用于你的通勤估算`);
-      const payload = await loadCandidates({ location: resolved.location, strategy: ideaMode && selectedInterests.length ? "focused" : "explore", interests: ideaMode ? selectedInterests : undefined, avoid: avoid.split(/[，,、;；]+/).map((item) => item.trim()).filter(Boolean) });
-      const roomResponse = await fetch("/api/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config, candidates: payload.candidates, meta: payload.meta, creatorName, creatorOrigin: resolved.label, creatorOriginLocation: resolved.location }) });
+      const payload = await loadCandidates({ city: activeConfig.city, kind: activeConfig.kind, location: resolved.location, strategy: ideaMode && selectedInterests.length ? "focused" : "explore", interests: ideaMode ? selectedInterests : undefined, avoid: avoid.split(/[，,、;；]+/).map((item) => item.trim()).filter(Boolean) });
+      const roomResponse = await fetch("/api/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config: activeConfig, candidates: payload.candidates, meta: payload.meta, creatorName, creatorOrigin: resolved.label, creatorOriginLocation: resolved.location }) });
       const roomPayload = await roomResponse.json() as { identity?: { code: string; memberId: string; memberToken: string }; error?: string };
       if (!roomResponse.ok || !roomPayload.identity) throw new Error(roomPayload.error || "房间创建失败");
       const nextIdentity = { id: roomPayload.identity.memberId, token: roomPayload.identity.memberToken };
