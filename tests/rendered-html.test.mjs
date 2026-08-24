@@ -31,7 +31,9 @@ test("server-renders the Couju product landing page", async () => {
   assert.match(html, /不是猜一个答案/);
   assert.match(html, /开始创建/);
   assert.match(html, /十城地点已上线/);
-  assert.match(html, /南京 · 重庆 · 苏州 · 合肥/);
+  assert.match(html, /已支持 10 座城市/);
+  assert.match(html, /广州、深圳、杭州/);
+  assert.doesNotMatch(html, /广深杭成/);
   assert.doesNotMatch(html, /上海首发|Beta|数据模式全程可见/);
   assert.match(html, /food-yunnan\.jpg/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
