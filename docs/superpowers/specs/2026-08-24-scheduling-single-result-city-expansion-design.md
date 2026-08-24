@@ -17,13 +17,13 @@
 首页不再要求精确填写开始和结束时间，改为：
 
 - 日期范围：今天、本周末、下周末、自定义。
-- 大概时段：上午、午餐、下午、晚餐、夜间，可多选。
-- 预计时长：1.5 小时、2 小时、3 小时、4 小时、不确定。
+- 大概时段：上午、下午、晚上，可多选。
+- 预计时长：2 小时、3 小时、4 小时、4 小时以上、不确定。
 - 城市：保留原六城并新增南京、重庆、苏州、合肥。
 
 创建摘要使用自然语言展示，例如：
 
-> 本周末 · 下午或晚餐 · 大约 3 小时  
+> 本周末 · 下午或晚上 · 大约 3 小时
 > 具体时间将在成员提交空闲时段后自动确定
 
 新版上线时清空现有房间与成员数据，不兼容旧的精确时间房间。用户需要使用新版流程重新创建房间。
@@ -88,8 +88,8 @@
 新增可选字段：
 
 - `dateRange: { start: string; end: string }`
-- `preferredPeriods: Array<"morning" | "lunch" | "afternoon" | "dinner" | "night">`
-- `durationMinutes: 90 | 120 | 180 | 240 | null`
+- `preferredPeriods: Array<"morning" | "afternoon" | "evening">`
+- `durationMinutes: 120 | 180 | 240 | "240_plus" | null`
 - `resolvedSchedule: { startAt: string; endAt: string; attendeeIds: string[] } | null`
 
 旧的 `date/startTime/endTime` 创建结构不再使用；最终展示时间只来自 `resolvedSchedule`。
