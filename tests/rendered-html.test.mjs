@@ -164,6 +164,16 @@ test("the UI exposes consent-based location, city sync, and feedback-driven refr
   assert.doesNotMatch(page, /strategy: "learn"/);
 });
 
+test("the UI keeps private rescue cards separate from the shared round", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /仅你可见 · 提名后进入下一轮共享评选/);
+  assert.match(page, /三张都不合适，跳过/);
+  assert.match(page, /这批都没感觉，请求换一批/);
+  assert.match(page, /action: "private-discovery"/);
+  assert.match(page, /action: "nominate"/);
+});
+
 test("preference endpoint uses dynamic rule extraction when no DeepSeek key is configured", async () => {
   const response = await fetchFromApp("/api/preferences", {
     method: "POST",
