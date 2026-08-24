@@ -49,8 +49,11 @@ test("keeps provenance, DeepSeek extraction, and deterministic ranking in the pr
   assert.match(page, /\/api\/candidates/);
   assert.match(page, /\/api\/preferences/);
   assert.match(page, /type="date"/);
-  assert.doesNotMatch(page, /type="time"/);
-  assert.match(page, /每格 30 分钟/);
+  assert.match(page, /开始时间/);
+  assert.match(page, /结束时间/);
+  assert.match(page, /添加另一段时间/);
+  assert.doesNotMatch(page, /每格 30 分钟|slot-grid/);
+  assert.match(page, /PERIOD_ORDER/);
   assert.match(page, /rankCandidates/);
   assert.match(page, /规则降级/);
   assert.match(page, /手输地铁站或商圈也会参与通勤计算/);
