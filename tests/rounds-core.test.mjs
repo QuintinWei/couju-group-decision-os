@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aggregateRoundFeedback, buildNextRoundSlots, canRequestPrivateDiscovery, diagnoseRoundConflict, normalizeFeedbackInterestScores, RoundCompositionError } from "../lib/rounds.ts";
+import { aggregatePrivateCategoryPenalties, aggregateRoundFeedback, applyCategoryPenalties, buildNextRoundSlots, canRequestPrivateDiscovery, diagnoseRoundConflict, normalizeFeedbackInterestScores, selectQualifiedExploration, RoundCompositionError } from "../lib/rounds.ts";
 import { getDemoCandidates } from "../lib/couju.ts";
 
 const candidates = getDemoCandidates("上海", "activity").slice(0, 3);
@@ -43,6 +43,29 @@ test("feedback keeps distinct matched interests even when Amap returns the same 
   const learnScores = normalizeFeedbackInterestScores("activity", feedback.categoryScores);
   assert.equal(learnScores.get("陶艺泥塑"), 2);
   assert.equal(learnScores.get("攀岩"), -1.5);
+});
+
+test("every non-nominated private card penalizes its stable category by minus 1.5", () => {
+  const privateCards = getDemoCandidates("上海", "activity").slice(0, 3).map((card, index) => ({ ...card, id: `private-${index}`, matchedInterest: ["攀岩", "攀岩", "陶艺泥塑"][index] }));
+  const penalties = aggregatePrivateCategoryPenalties([{ privateCandidates: privateCards, nominatedCandidate: privateCards[2] }]);
+  assert.deepEqual(Object.fromEntries(penalties), { "攀岩": -3 });
+  const learned = applyCategoryPenalties(new Map([["攀岩", 2], ["陶艺泥塑", 0.5]]), penalties);
+  assert.deepEqual(Object.fromEntries(learned), { "攀岩": -1, "陶艺泥塑": 0.5 });
+});
+
+test("exploration accepts only requested unseen stable categories", () => {
+  const source = getDemoCandidates("上海", "activity");
+  const pool = [
+    { ...source[0], id: "one", matchedInterest: "攀岩" },
+    { ...source[1], id: "two", matchedInterest: "陶艺泥塑" },
+    { ...source[2], id: "three", matchedInterest: "电影" },
+    { ...source[3], id: "four", matchedInterest: "KTV" },
+    { ...source[4], id: "seen", matchedInterest: "景点" },
+    { ...source[5], id: "unrequested", matchedInterest: "麻将棋牌" },
+  ];
+  const selected = selectQualifiedExploration(pool, ["攀岩", "陶艺泥塑", "电影", "KTV"], new Set(["景点"]));
+  assert.deepEqual(selected.map((card) => card.id), ["one", "two", "three", "four"]);
+  assert.throws(() => selectQualifiedExploration(pool.slice(0, 3), ["攀岩", "陶艺泥塑", "电影", "KTV"], new Set()), (error) => error instanceof RoundCompositionError && error.code === "insufficient_exploration");
 });
 
 test("next round keeps nominations, fills learned slots, and reserves four exploration cards", () => {

@@ -8,6 +8,11 @@ export type RoundFeedback = {
   seenCandidateIds: string[];
 };
 
+type PrivateCategoryMember = {
+  privateCandidates: Candidate[];
+  nominatedCandidate: Candidate | null;
+};
+
 export type ConflictReasonType = "all_rejected" | "choice_rejection" | "commute" | "budget" | "duration" | "no_spicy" | "unknown_hard_fact";
 
 export type ConflictReason = {
@@ -49,6 +54,42 @@ export function normalizeFeedbackInterestScores(kind: DecisionKind, categoryScor
     scores.set(category, (scores.get(category) ?? 0) + score);
   }
   return scores;
+}
+
+export function aggregatePrivateCategoryPenalties(members: PrivateCategoryMember[]) {
+  const penalties = new Map<string, number>();
+  for (const member of members) {
+    const nominatedKey = member.nominatedCandidate ? providerKey(member.nominatedCandidate) : null;
+    for (const candidate of member.privateCandidates) {
+      if (providerKey(candidate) === nominatedKey) continue;
+      const category = candidate.matchedInterest || candidate.type;
+      penalties.set(category, (penalties.get(category) ?? 0) - 1.5);
+    }
+  }
+  return penalties;
+}
+
+export function applyCategoryPenalties(scores: Map<string, number>, penalties: Map<string, number>) {
+  const combined = new Map(scores);
+  for (const [category, penalty] of penalties) combined.set(category, (combined.get(category) ?? 0) + penalty);
+  return combined;
+}
+
+export function selectQualifiedExploration(candidates: Candidate[], requestedUnseen: string[], seenCategories: Set<string>) {
+  const requested = new Set(requestedUnseen);
+  const selected: Candidate[] = [];
+  const categories = new Set<string>();
+  const providers = new Set<string>();
+  for (const candidate of candidates) {
+    const category = candidate.matchedInterest || candidate.type;
+    const provider = providerKey(candidate);
+    if (!requested.has(category) || seenCategories.has(category) || categories.has(category) || providers.has(provider)) continue;
+    selected.push(candidate);
+    categories.add(category);
+    providers.add(provider);
+    if (selected.length === 4) return selected;
+  }
+  throw new RoundCompositionError("insufficient_exploration", "下一轮未取得四张符合未探索类别的候选");
 }
 
 function providerKey(candidate: Candidate): string {

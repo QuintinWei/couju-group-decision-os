@@ -179,7 +179,8 @@ test("the UI keeps private rescue cards separate from the shared round", async (
   assert.match(page, /aria-pressed/);
   assert.match(css, /\.private-card-grid/);
   assert.match(css, /@media\(max-width:760px\).*\.private-card-grid\{grid-template-columns:1fr/s);
-  assert.match(roomsRoute, /toPublicRoom\(room\)/);
+  assert.match(roomsRoute, /toJoinRoom\(room\)/);
+  assert.match(roomsRoute, /toParticipantRoom\(room, memberId\)/);
 });
 
 test("the room flow exposes round-aware recovery only after a shared round is complete", async () => {

@@ -1,17 +1,24 @@
 import { SUPPORTED_CITIES, type Candidate, type RoomConfig } from "../../../lib/couju";
 import { geocodeOrigin } from "../../../lib/amap";
-import { toPublicRoom } from "../../../lib/public-room";
+import { toJoinRoom, toParticipantRoom } from "../../../lib/public-room";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const code = new URL(request.url).searchParams.get("code")?.trim().toUpperCase() || "";
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code")?.trim().toUpperCase() || "";
   if (!/^[A-Z0-9]{6}$/.test(code)) return Response.json({ error: "房间号无效" }, { status: 400 });
   try {
-    const { getStoredRoom } = await loadRoomStore();
-    const room = await getStoredRoom(code);
-    if (!room) return Response.json({ error: "没有找到这个房间" }, { status: 404 });
-    return Response.json({ room: toPublicRoom(room) }, { headers: { "Cache-Control": "no-store" } });
+    const memberId = cleanText(url.searchParams.get("memberId"), 64);
+    const token = cleanText(url.searchParams.get("token"), 128);
+    if (Boolean(memberId) !== Boolean(token)) return Response.json({ error: "成员身份无效" }, { status: 400 });
+    const { getAuthenticatedStoredRoom, getStoredRoom } = await loadRoomStore();
+    const room = memberId && token
+      ? await getAuthenticatedStoredRoom({ roomCode: code, memberId, token })
+      : await getStoredRoom(code);
+    if (!room) return Response.json({ error: memberId ? "成员身份已失效，请重新加入" : "没有找到这个房间" }, { status: memberId ? 403 : 404 });
+    if (memberId && token) return Response.json({ room: toParticipantRoom(room, memberId) }, { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json({ room: toJoinRoom(room) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("[rooms:get]", error);
     return Response.json({ error: "房间服务暂时不可用" }, { status: 503 });

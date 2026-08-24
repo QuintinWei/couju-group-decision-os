@@ -4,8 +4,8 @@ type CandidateIdentity = { id: string; source?: { providerId?: string } };
 type MemberSubmission = { id: string; submittedAt: string | null };
 type PrivateDiscoveryMember = { privateCandidates: CandidateIdentity[]; nominatedCandidate: CandidateIdentity | null };
 
-export type RoundGateCode = "NOT_CREATOR" | "STALE_ROUND" | "MAX_ROUNDS" | "INCOMPLETE_MEMBERS" | "INVALID_SHARED_CANDIDATES" | "PRIVATE_INELIGIBLE" | "GENERATION_FAILED" | "MALFORMED";
-export type RoundGateResult = { ok: true } | { ok: false; status: 400 | 403 | 409 | 422 | 429; code: RoundGateCode };
+export type RoundGateCode = "NOT_CREATOR" | "STALE_ROUND" | "MAX_ROUNDS" | "INCOMPLETE_MEMBERS" | "INVALID_SHARED_CANDIDATES" | "PRIVATE_INELIGIBLE" | "GENERATION_FAILED" | "SERVICE_FAILED" | "MALFORMED";
+export type RoundGateResult = { ok: true } | { ok: false; status: 400 | 403 | 409 | 422 | 429 | 503; code: RoundGateCode };
 
 export function validateRoundActionPayload(body: Record<string, unknown>): RoundGateResult {
   const action = body.action;
@@ -63,13 +63,20 @@ export function collectAdvanceExcludedIds(input: {
   ]);
 }
 
-export async function executeGuardedGeneration<T, R>(gate: RoundGateResult, generate: () => Promise<T>, mutate: (generated: T) => Promise<R>): Promise<RoundGateResult | { ok: true; value: R }> {
+type RoundGateFailure = Extract<RoundGateResult, { ok: false }>;
+
+export async function executeGuardedGeneration<T, R>(gate: RoundGateResult, generate: () => Promise<T>, mutate: (generated: T) => Promise<R>): Promise<RoundGateFailure | { ok: true; value: R }> {
   if (!gate.ok) return gate;
+  let generated: T;
   try {
-    const generated = await generate();
-    return { ok: true, value: await mutate(generated) };
+    generated = await generate();
   } catch {
     return { ok: false, status: 422, code: "GENERATION_FAILED" };
+  }
+  try {
+    return { ok: true, value: await mutate(generated) };
+  } catch {
+    return { ok: false, status: 503, code: "SERVICE_FAILED" };
   }
 }
 

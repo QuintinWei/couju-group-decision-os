@@ -22,11 +22,12 @@ import {
 } from "../lib/couju";
 import { requestBrowserPosition } from "../lib/browser-location";
 import type { StoredMember, StoredRoom } from "../lib/room-store";
+import type { JoinRoomDto } from "../lib/public-room";
 import { diagnoseRoundConflict } from "../lib/rounds";
-import { getRoundControlVisibility, reconcileAuthoritativeRound } from "../lib/round-client-state";
+import { getRefreshRequestControl, getRoundControlVisibility, reconcileAuthoritativeRound } from "../lib/round-client-state";
 import { canRequestPrivateDiscovery, privateDiscoveryFailure, privateDiscoveryRequestPlan, privateNominationAction, togglePrivateNomination, type RoundClientAction } from "../lib/private-discovery-flow";
 
-type CandidateMeta = { mode: DataMode; label: string; fetchedAt: string; disclaimer?: string; keywords?: string[]; avoid?: string[]; page?: number; center?: GeoPoint | null; seed?: string; focused?: boolean; strategy?: "explore" | "focused" | "learn"; commuteWindow?: string };
+type CandidateMeta = { mode: DataMode; label: string; fetchedAt: string; disclaimer?: string; keywords?: string[]; avoid?: string[]; page?: number; center?: GeoPoint | null; seed?: string; focused?: boolean; strategy?: "explore" | "focused" | "learn" | "private"; commuteWindow?: string };
 type AiExplanation = { headline: string; reasoning: string; tradeoff: string };
 type ClientStage = Stage | "private-discovery";
 const stageOrder: ClientStage[] = ["create", "room", ...PREFERENCE_FLOW, "private-discovery", "ranking", "results", "locked"];
@@ -93,6 +94,7 @@ export default function Home() {
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [avoid, setAvoid] = useState("");
   const [room, setRoom] = useState<StoredRoom | null>(null);
+  const [joinRoomSummary, setJoinRoomSummary] = useState<JoinRoomDto | null>(null);
   const [roomCode, setRoomCode] = useState("");
   const [identity, setIdentity] = useState<MemberIdentity | null>(null);
   const [roomError, setRoomError] = useState("");
@@ -142,10 +144,13 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const refreshRoom = async (code: string, quiet = false) => {
+  const refreshRoom = async (code: string, quiet = false, auth: MemberIdentity | null = identity) => {
+    if (!auth) return null;
     if (!quiet) setSyncing(true);
     try {
-      const response = await fetch(`/api/rooms?code=${encodeURIComponent(code)}`, { cache: "no-store" });
+      const query = new URLSearchParams({ code });
+      query.set("memberId", auth.id); query.set("token", auth.token);
+      const response = await fetch(`/api/rooms?${query}`, { cache: "no-store" });
       const payload = await response.json() as { room?: StoredRoom; error?: string };
       if (!response.ok || !payload.room) throw new Error(payload.error || "房间加载失败");
       const roundTransition = reconcileAuthoritativeRound({ knownRound: knownRoundRef.current, nextRound: payload.room.currentRound });
@@ -172,7 +177,17 @@ export default function Home() {
       let saved: MemberIdentity | null = null;
       try { saved = JSON.parse(window.localStorage.getItem(`couju-room-${code}`) || "null") as MemberIdentity | null; } catch { saved = null; }
       setIdentity(saved);
-      void refreshRoom(code).then((loaded) => loaded && setStage(saved && loaded.members.some((member) => member.id === saved?.id) ? "room" : "join"));
+      if (saved) {
+        void refreshRoom(code, false, saved).then((loaded) => loaded && setStage(loaded.members.some((member) => member.id === saved.id) ? "room" : "join"));
+      } else {
+        void fetch(`/api/rooms?code=${encodeURIComponent(code)}`, { cache: "no-store" })
+          .then(async (response) => ({ response, payload: await response.json() as { room?: JoinRoomDto; error?: string } }))
+          .then(({ response, payload }) => {
+            if (!response.ok || !payload.room) throw new Error(payload.error || "房间加载失败");
+            setJoinRoomSummary(payload.room); setConfig((current) => ({ ...current, kind: payload.room!.kind, city: payload.room!.city, date: payload.room!.date, startTime: payload.room!.startTime, endTime: payload.room!.endTime, people: payload.room!.targetCount })); setStage("join");
+          })
+          .catch((cause) => setRoomError(cause instanceof Error ? cause.message : "房间加载失败"));
+      }
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -185,7 +200,7 @@ export default function Home() {
 
   const resetSession = () => {
     const next = createDefaultConfig();
-    setStage("home"); setConfig(next); setCandidates(getDemoCandidates(next.city, next.kind)); setRoom(null); setRoomCode(""); setIdentity(null); setRoomError(""); knownRoundRef.current = null;
+    setStage("home"); setConfig(next); setCandidates(getDemoCandidates(next.city, next.kind)); setRoom(null); setJoinRoomSummary(null); setRoomCode(""); setIdentity(null); setRoomError(""); knownRoundRef.current = null;
     window.history.replaceState({}, "", window.location.pathname);
     setCandidateMeta({ mode: "demo", label: "凑局演示候选库", fetchedAt: "2026-08-21T00:00:00.000Z", disclaimer: "当前为演示候选，不代表实时商户、价格或可订状态。" });
     setCardIndex(0); setSwipes({}); setBudget("≤ ¥150"); setCommute("≤ 60 分钟"); setSetting("都可以");
@@ -262,7 +277,7 @@ export default function Home() {
       window.localStorage.setItem(`couju-room-${roomPayload.identity.code}`, JSON.stringify(nextIdentity));
       window.history.replaceState({}, "", `?room=${roomPayload.identity.code}`);
       setRoomCode(roomPayload.identity.code); setIdentity(nextIdentity); setCandidates(payload.candidates); setCandidateMeta(payload.meta);
-      await refreshRoom(roomPayload.identity.code); setStage("room");
+      await refreshRoom(roomPayload.identity.code, false, nextIdentity); setStage("room");
     } catch (error) { setRoomError(error instanceof Error ? error.message : "房间创建失败"); }
     finally { setCandidateLoading(false); }
   };
@@ -274,7 +289,7 @@ export default function Home() {
       const payload = await response.json() as { identity?: MemberIdentity; error?: string };
       if (!response.ok || !payload.identity) throw new Error(payload.error || "加入失败");
       setIdentity(payload.identity); window.localStorage.setItem(`couju-room-${roomCode}`, JSON.stringify(payload.identity));
-      await refreshRoom(roomCode, true); setStage("room");
+      await refreshRoom(roomCode, true, payload.identity); setStage("room");
     } catch (error) { setRoomError(error instanceof Error ? error.message : "加入失败"); }
     finally { setSyncing(false); }
   };
@@ -291,7 +306,7 @@ export default function Home() {
     const response = await fetch("/api/members", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomCode, memberId: identity.id, token: identity.token, budgetLabel: budget, commuteLabel: commute, setting, note, extraction, choices: swipes }),
+      body: JSON.stringify({ roomCode, memberId: identity.id, token: identity.token, expectedRound: room?.currentRound, budgetLabel: budget, commuteLabel: commute, setting, note, extraction, choices: swipes }),
     });
     const payload = await response.json() as { error?: string };
     if (!response.ok) throw new Error(payload.error || "提交失败");
@@ -311,12 +326,13 @@ export default function Home() {
   };
 
   const requestNextRound = async () => {
-    if (!currentMember?.submittedAt) return;
+    if (!currentMember?.submittedAt || !room) return;
+    const requested = currentMember.refreshRequestRound === room.currentRound;
     setSyncing(true); setRoomError("");
     try {
-      await postRoundAction({ action: "request", requested: true });
+      await postRoundAction({ action: "request", requested: !requested });
       await refreshRoom(roomCode, true);
-      setToast("已告诉房主：你希望根据全体反馈换一批");
+      setToast(requested ? "已取消换一批请求" : "已告诉房主：你希望根据全体反馈换一批");
     } catch (error) {
       if (error instanceof RoundActionError && error.status === 409) await refreshRoom(roomCode, true);
       setRoomError(error instanceof Error ? error.message : "请求换一批失败，请重试");
@@ -442,7 +458,7 @@ export default function Home() {
     <header className="app-header"><button className="brand" onClick={() => stage !== "home" && resetSession()} aria-label="返回凑局首页"><span className="brand-mark">凑</span><span>凑局</span><small>COUJU</small></button>{stage === "home" ? <span className="privacy-pill"><i /> 六城地点已上线</span> : <div className="demo-header-right"><div className="step-dots" aria-label={`Demo 进度 ${currentProgress + 1}/${stageOrder.length}`}>{stageOrder.map((item, index) => <span key={item} className={index <= currentProgress ? "active" : ""} />)}</div><span className={`demo-badge mode-${candidateMeta.mode}`}>{candidateMeta.mode === "live" ? "地点推荐" : "演示数据"}</span><button className="quiet-button" onClick={resetSession}>退出</button></div>}</header>
     {stage === "home" && <HomeScreen onStart={() => setStage("create")} />}
     {stage === "create" && <CreateScreen config={config} creatorName={creatorName} creatorOrigin={creatorOrigin} creatorLocation={creatorLocation} locationStatus={locationStatus} locating={locating} ideaMode={ideaMode} selectedInterests={selectedInterests} avoid={avoid} setCreatorName={setCreatorName} setCreatorOrigin={(value) => { setCreatorOrigin(value); setCreatorLocation(null); setLocationStatus("输入后会识别地铁站或商圈，并用于通勤估算"); }} setIdeaMode={setIdeaMode} setSelectedInterests={setSelectedInterests} setAvoid={setAvoid} onLocate={useCurrentLocation} error={roomError} onChange={updateConfig} onBack={() => setStage("home")} onCreate={createRoom} loading={candidateLoading} />}
-    {stage === "join" && room && <JoinScreen room={room} loading={syncing} error={roomError} onJoin={joinRoom} />}
+    {stage === "join" && joinRoomSummary && <JoinScreen room={joinRoomSummary} loading={syncing} error={roomError} onJoin={joinRoom} />}
     {stage === "room" && room && <RoomScreen room={room} currentMember={currentMember} syncing={syncing} error={roomError} onShare={copyShare} onPreference={() => { setCardIndex(0); setSwipes(currentMember?.choices ?? {}); setBudget(currentMember?.budgetLabel || budget); setCommute(currentMember?.commuteLabel || commute); setSetting(currentMember?.setting || setting); setNote(currentMember?.note || ""); setExtraction(currentMember?.extraction ?? null); setPrivateCandidates([]); setPrivateNominationId(null); setPrivateError(""); setStage("setup"); }} onRank={startRanking} onRequestNextRound={requestNextRound} onOpenAdvance={() => setAdvanceConfirmOpen(true)} />}
     {stage === "setup" && <PreferenceSetupScreen config={config} budget={budget} commute={commute} setting={setting} setBudget={setBudget} setCommute={setCommute} setSetting={setSetting} onBack={() => setStage("room")} onContinue={() => setStage("swipe")} />}
     {stage === "swipe" && <SwipeScreen config={config} cards={candidates} index={cardIndex} choices={swipes} travelMinutes={estimateTravelBetween(currentMember?.originLocation ?? null, candidates[cardIndex]?.location ?? null) ?? candidates[cardIndex]?.estimatedTravelMinutes ?? null} onChoose={chooseCard} onBack={() => setStage("setup")} onPointerDown={(x) => { pointerStart.current = x; }} onPointerUp={(x) => { if (pointerStart.current === null) return; const delta = x - pointerStart.current; if (delta > 65) chooseCard("like"); else if (delta < -65) chooseCard("no"); pointerStart.current = null; }} />}
@@ -488,21 +504,21 @@ function CreateScreen(props: { config: RoomConfig; creatorName: string; creatorO
   </section>;
 }
 
-function JoinScreen({ room, loading, error, onJoin }: { room: StoredRoom; loading: boolean; error: string; onJoin: (name: string, origin: string, originLocation: GeoPoint | null) => void }) {
+function JoinScreen({ room, loading, error, onJoin }: { room: JoinRoomDto; loading: boolean; error: string; onJoin: (name: string, origin: string, originLocation: GeoPoint | null) => void }) {
   const [name, setName] = useState(""); const [origin, setOrigin] = useState(""); const [originLocation, setOriginLocation] = useState<GeoPoint | null>(null); const [locating, setLocating] = useState(false); const [locationMessage, setLocationMessage] = useState("输入地铁站/商圈，或授权系统定位");
   const locate = () => {
     if (!navigator.geolocation) return setLocationMessage("当前浏览器不支持定位，请手动输入");
     setLocating(true); setLocationMessage("正在定位…");
     requestBrowserPosition(navigator.geolocation.getCurrentPosition.bind(navigator.geolocation)).then(async (position) => {
       try {
-        const response = await fetch("/api/location", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ city: room.config.city, lat: position.coords.latitude, lng: position.coords.longitude }) });
+        const response = await fetch("/api/location", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ city: room.city, lat: position.coords.latitude, lng: position.coords.longitude }) });
         const payload = await response.json() as LocationResponse;
         if (!response.ok || !payload.location) throw new Error(payload.error || "定位服务暂时不可用");
         setOrigin(payload.label || "当前位置附近"); setOriginLocation(payload.location); setLocationMessage("已定位 · 会参与你的通勤计算");
       } catch (cause) { setLocationMessage(cause instanceof Error ? cause.message : "定位服务暂时不可用，请手动输入"); }
     }).catch((error) => { setLocationMessage(browserLocationError(error as GeolocationPositionError)); }).finally(() => setLocating(false));
   };
-  return <section className="flow-page create-page join-page"><ScreenTitle eyebrow={`ROOM ${room.code}`} title={`加入“${roomTitle(room.config.kind)}”`} detail={`${room.config.city} · ${formatDate(room.config.date)} · 已有 ${room.members.length}/${room.config.people} 人加入`} /><div className="join-card"><div className="join-summary"><span>{room.config.kind === "dining" ? "♨" : "✦"}</span><div><b>{room.config.startTime}–{room.config.endTime}</b><small>{room.config.city} · {room.candidates.length} 个候选</small></div></div><label><span>你的昵称</span><input className="form-control" value={name} maxLength={18} onChange={(event) => setName(event.target.value)} placeholder="朋友会看到这个名字" /></label><label><span>从哪里出发</span><div className="location-input-row"><input className="form-control" value={origin} maxLength={40} onChange={(event) => { setOrigin(event.target.value); setOriginLocation(null); setLocationMessage("提交时会识别这个地铁站或商圈"); }} placeholder="不用填写精确住址" /><button type="button" onClick={locate} disabled={locating}>{locating ? "定位中" : "⌖ 定位"}</button></div><small className={originLocation ? "location-ok" : ""}>{locationMessage}</small></label>{error && <p className="form-error">{error}</p>}<button className="full-dark-button" disabled={loading || !name.trim() || !origin.trim()} onClick={() => onJoin(name, origin, originLocation)}>{loading ? "正在加入…" : "加入房间"} <span>→</span></button><p className="privacy-note">系统定位只在你点击并授权后使用；手输地铁站或商圈也会参与通勤计算。</p></div></section>;
+  return <section className="flow-page create-page join-page"><ScreenTitle eyebrow={`ROOM ${room.code}`} title={`加入“${room.title}”`} detail={`${room.city} · ${formatDate(room.date)} · 已有 ${room.joinedCount}/${room.targetCount} 人加入`} /><div className="join-card"><div className="join-summary"><span>{room.kind === "dining" ? "♨" : "✦"}</span><div><b>{room.startTime}–{room.endTime}</b><small>{room.city} · 加入后查看 12 张共享候选</small></div></div><label><span>你的昵称</span><input className="form-control" value={name} maxLength={18} onChange={(event) => setName(event.target.value)} placeholder="朋友会看到这个名字" /></label><label><span>从哪里出发</span><div className="location-input-row"><input className="form-control" value={origin} maxLength={40} onChange={(event) => { setOrigin(event.target.value); setOriginLocation(null); setLocationMessage("提交时会识别这个地铁站或商圈"); }} placeholder="不用填写精确住址" /><button type="button" onClick={locate} disabled={locating}>{locating ? "定位中" : "⌖ 定位"}</button></div><small className={originLocation ? "location-ok" : ""}>{locationMessage}</small></label>{error && <p className="form-error">{error}</p>}<button className="full-dark-button" disabled={loading || !name.trim() || !origin.trim() || room.status === "full"} onClick={() => onJoin(name, origin, originLocation)}>{room.status === "full" ? "房间人数已满" : loading ? "正在加入…" : "加入房间"} <span>→</span></button><p className="privacy-note">系统定位只在你点击并授权后使用；手输地铁站或商圈也会参与通勤计算。</p></div></section>;
 }
 
 function RoomScreen({ room, currentMember, syncing, error, onShare, onPreference, onRank, onRequestNextRound, onOpenAdvance }: { room: StoredRoom; currentMember: StoredMember | null; syncing: boolean; error: string; onShare: () => void; onPreference: () => void; onRank: () => void; onRequestNextRound: () => void; onOpenAdvance: () => void }) {
@@ -511,10 +527,11 @@ function RoomScreen({ room, currentMember, syncing, error, onShare, onPreference
   const enough = doneCount >= 2;
   const allSubmitted = room.members.length > 0 && doneCount === room.members.length;
   const controls = getRoundControlVisibility({ currentRound: room.currentRound, creatorId: room.members[0]?.id, memberId: currentMember?.id, allSubmitted, submitted: Boolean(currentMember?.submittedAt) });
+  const refreshControl = getRefreshRequestControl({ canRequestRefresh: controls.canRequestRefresh, requested: currentMember?.refreshRequestRound === room.currentRound });
   const isCreator = controls.isCreator;
   const requestCount = room.members.filter((member) => member.refreshRequestRound === room.currentRound).length;
   const canAdvance = controls.canAdvance;
-  return <section className="flow-page room-page"><div className="room-kicker"><span>{config.city} · {config.kind === "dining" ? "聚餐" : "活动"}</span><b>房间 {room.code}</b></div><ScreenTitle eyebrow={`${config.kind === "dining" ? "DINNER" : "WEEKEND"} IN ${config.city.toUpperCase()}`} title={roomTitle(config.kind)} detail={`${formatDate(config.date)} · ${config.startTime}–${config.endTime} · ${config.city}`} /><div className="data-audit-strip"><span className={`source-dot ${meta.mode}`} /><b>{room.candidates.length} 个候选 · {meta.label}</b><span>{room.members.length}/{config.people} 人已加入</span><span>{syncing ? "同步中" : "每 4 秒同步"}</span></div><div className="room-grid"><div className="room-main-card"><div className="room-card-head"><div><span>真实成员</span><strong>{doneCount}/{room.members.length} 已提交</strong></div><i>{allSubmitted && enough ? "可以计算真实交集" : "等待所有已加入成员提交"}</i></div><div className="member-list">{room.members.map((member) => <div key={member.id} className={member.submittedAt ? "member done" : "member pending"}><div className="avatar">{member.name.slice(0, 1).toUpperCase()}{member.submittedAt && <span>✓</span>}</div><div><b>{member.name}{member.id === currentMember?.id ? " · 你" : ""}</b><small>{member.origin} · {member.submittedAt ? "偏好已提交" : "等待提交"}</small></div><em>{member.submittedAt ? "完成" : "待完成"}</em></div>)}</div>{!currentMember?.submittedAt ? <button className="full-dark-button pulse" onClick={onPreference}>开始划这批候选 <span>→</span></button> : <div className="room-actions"><button className="quiet-button" onClick={onPreference}>修改我的偏好</button><button className="full-dark-button lime-button" onClick={onRank} disabled={!enough || !allSubmitted}>计算真实交集 <span>✦</span></button></div>}<p className="privacy-note">⌾ 位置用于候选范围和通勤估算；每个人的通勤上限仍会作为最终硬筛选。</p></div><aside className="invite-card"><span className="big-source-mark live">{room.code}</span><h3>把链接发给朋友</h3><p>对方不需要注册，填写昵称和大致出发地后就能独立选择。</p><button onClick={onShare}>复制房间链接 <span>↗</span></button><small>{room.members.length < config.people ? `还可加入 ${config.people - room.members.length} 人` : "房间人数已满"}</small>{error && <p className="form-error">{error}</p>}</aside></div><section className="round-status-card" aria-label="本轮协作状态"><div><span>共享卡池</span><b>第 {room.currentRound}/3 轮</b><small>{doneCount}/{room.members.length} 人已提交 · {requestCount} 人请求换一批</small></div>{room.currentRound >= 3 ? <p>已经完成三轮探索；若仍没有交集，系统会说明最需要调整的边界。</p> : canAdvance ? <button className="full-dark-button" onClick={onOpenAdvance}>根据全体反馈开启下一轮 <span>→</span></button> : controls.canRequestRefresh ? <button className="round-request-button" onClick={onRequestNextRound}>请求房主换一批</button> : <p>{isCreator ? "全员提交后，才可以根据反馈开启下一轮。" : "提交本轮选择后，可以请求房主换一批。"}</p>}</section><div className="public-constraint"><b>本轮配置</b><span>{formatDate(config.date)} {config.startTime}–{config.endTime}</span><span>{config.city}市</span><span>{meta.commuteWindow || "全城探索"}</span><span>目标 {config.people} 人</span><i>{meta.focused ? `按想法：${meta.keywords?.join("、")}` : "探索模式 · 按通勤范围召回"}</i></div></section>;
+  return <section className="flow-page room-page"><div className="room-kicker"><span>{config.city} · {config.kind === "dining" ? "聚餐" : "活动"}</span><b>房间 {room.code}</b></div><ScreenTitle eyebrow={`${config.kind === "dining" ? "DINNER" : "WEEKEND"} IN ${config.city.toUpperCase()}`} title={roomTitle(config.kind)} detail={`${formatDate(config.date)} · ${config.startTime}–${config.endTime} · ${config.city}`} /><div className="data-audit-strip"><span className={`source-dot ${meta.mode}`} /><b>{room.candidates.length} 个候选 · {meta.label}</b><span>{room.members.length}/{config.people} 人已加入</span><span>{syncing ? "同步中" : "每 4 秒同步"}</span></div><div className="room-grid"><div className="room-main-card"><div className="room-card-head"><div><span>真实成员</span><strong>{doneCount}/{room.members.length} 已提交</strong></div><i>{allSubmitted && enough ? "可以计算真实交集" : "等待所有已加入成员提交"}</i></div><div className="member-list">{room.members.map((member) => <div key={member.id} className={member.submittedAt ? "member done" : "member pending"}><div className="avatar">{member.name.slice(0, 1).toUpperCase()}{member.submittedAt && <span>✓</span>}</div><div><b>{member.name}{member.id === currentMember?.id ? " · 你" : ""}</b><small>{member.origin} · {member.submittedAt ? "偏好已提交" : "等待提交"}</small></div><em>{member.submittedAt ? "完成" : "待完成"}</em></div>)}</div>{!currentMember?.submittedAt ? <button className="full-dark-button pulse" onClick={onPreference}>开始划这批候选 <span>→</span></button> : <div className="room-actions"><button className="quiet-button" onClick={onPreference}>修改我的偏好</button><button className="full-dark-button lime-button" onClick={onRank} disabled={!enough || !allSubmitted}>计算真实交集 <span>✦</span></button></div>}<p className="privacy-note">⌾ 位置用于候选范围和通勤估算；每个人的通勤上限仍会作为最终硬筛选。</p></div><aside className="invite-card"><span className="big-source-mark live">{room.code}</span><h3>把链接发给朋友</h3><p>对方不需要注册，填写昵称和大致出发地后就能独立选择。</p><button onClick={onShare}>复制房间链接 <span>↗</span></button><small>{room.members.length < config.people ? `还可加入 ${config.people - room.members.length} 人` : "房间人数已满"}</small>{error && <p className="form-error">{error}</p>}</aside></div><section className="round-status-card" aria-label="本轮协作状态"><div><span>共享卡池</span><b>第 {room.currentRound}/3 轮</b><small>{doneCount}/{room.members.length} 人已提交 · {requestCount} 人请求换一批</small></div>{room.currentRound >= 3 ? <p>已经完成三轮探索；若仍没有交集，系统会说明最需要调整的边界。</p> : canAdvance ? <button className="full-dark-button" onClick={onOpenAdvance}>根据全体反馈开启下一轮 <span>→</span></button> : refreshControl.visible ? <button className="round-request-button" aria-pressed={refreshControl.requested} onClick={onRequestNextRound}>{refreshControl.label}</button> : <p>{isCreator ? "全员提交后，才可以根据反馈开启下一轮。" : "提交本轮选择后，可以请求房主换一批。"}</p>}</section><div className="public-constraint"><b>本轮配置</b><span>{formatDate(config.date)} {config.startTime}–{config.endTime}</span><span>{config.city}市</span><span>{meta.commuteWindow || "全城探索"}</span><span>目标 {config.people} 人</span><i>{meta.focused ? `按想法：${meta.keywords?.join("、")}` : "探索模式 · 全城召回后按个人通勤上限筛选"}</i></div></section>;
 }
 
 function PreferenceSetupScreen(props: { config: RoomConfig; budget: string; commute: string; setting: string; setBudget: (value: string) => void; setCommute: (value: string) => void; setSetting: (value: string) => void; onBack: () => void; onContinue: () => void }) {
@@ -554,12 +571,13 @@ function ResultsScreen({ config, room, currentMember, ranked, meta, members, aiE
   const main = ranked[0];
   const allSubmitted = room.members.length > 0 && room.members.every((member) => Boolean(member.submittedAt));
   const controls = getRoundControlVisibility({ currentRound: room.currentRound, creatorId: room.members[0]?.id, memberId: currentMember?.id, allSubmitted, submitted: Boolean(currentMember?.submittedAt) });
+  const refreshControl = getRefreshRequestControl({ canRequestRefresh: controls.canRequestRefresh, requested: currentMember?.refreshRequestRound === room.currentRound });
   const isCreator = controls.isCreator;
   const requestCount = room.members.filter((member) => member.refreshRequestRound === room.currentRound).length;
   const canAdvance = controls.canAdvance;
   if (!main) {
     const reasons = room.currentRound >= 3 ? diagnoseRoundConflict(room.candidates, room.members, config).slice(0, 2) : [];
-    return <section className="flow-page results-page no-solution"><span className="no-solution-icon">∅</span><h1>{room.currentRound >= 3 ? "已经完成三轮探索" : "没有交集，换一批继续选"}</h1><p>{room.currentRound >= 3 ? "系统不会强行给出一个不合适的答案。下面是本轮最影响交集的边界。" : "系统没有强行生成 Top 1；保留已确认的边界和反馈，下一轮会换成新的共享卡池。"}</p>{room.currentRound >= 3 ? <div className="conflict-panel" role="status"><b>本轮冲突诊断</b>{reasons.length ? <ul>{reasons.map((reason) => <li key={`${reason.type}-${reason.memberId || "group"}`}>{reason.message}</li>)}</ul> : <p>没有单一硬约束阻断结果；建议一起调整预算、通勤或场景偏好。</p>}</div> : <div className="zero-result-actions">{canAdvance ? <button className="full-dark-button" onClick={onOpenAdvance} disabled={advancing}>{advancing ? "正在准备下一轮…" : "根据全体反馈开启下一轮"} <span>→</span></button> : controls.canRequestRefresh ? <button className="full-dark-button" onClick={onRequestNextRound}>请求房主换一批 <span>→</span></button> : null}<small>{requestCount} 人请求换一批{!isCreator ? " · 房主会在所有成员提交后推进" : ""}</small></div>}{room.currentRound >= 3 ? <div className="conflict-actions"><button className="full-dark-button" onClick={onAdjust}>调整我的边界 <span>→</span></button><button className="round-request-button" onClick={onDiscuss}>返回房间讨论</button></div> : null}{error && <p className="form-error" role="alert">{error}</p>}</section>;
+    return <section className="flow-page results-page no-solution"><span className="no-solution-icon">∅</span><h1>{room.currentRound >= 3 ? "已经完成三轮探索" : "没有交集，换一批继续选"}</h1><p>{room.currentRound >= 3 ? "系统不会强行给出一个不合适的答案。下面是本轮最影响交集的边界。" : "系统没有强行生成 Top 1；保留已确认的边界和反馈，下一轮会换成新的共享卡池。"}</p>{room.currentRound >= 3 ? <div className="conflict-panel" role="status"><b>本轮冲突诊断</b>{reasons.length ? <ul>{reasons.map((reason) => <li key={`${reason.type}-${reason.memberId || "group"}`}>{reason.message}</li>)}</ul> : <p>没有单一硬约束阻断结果；建议一起调整预算、通勤或场景偏好。</p>}</div> : <div className="zero-result-actions">{canAdvance ? <button className="full-dark-button" onClick={onOpenAdvance} disabled={advancing}>{advancing ? "正在准备下一轮…" : "根据全体反馈开启下一轮"} <span>→</span></button> : refreshControl.visible ? <button className="full-dark-button" aria-pressed={refreshControl.requested} onClick={onRequestNextRound}>{refreshControl.label} <span>→</span></button> : null}<small>{requestCount} 人请求换一批{!isCreator ? " · 房主会在所有成员提交后推进" : ""}</small></div>}{room.currentRound >= 3 ? <div className="conflict-actions"><button className="full-dark-button" onClick={onAdjust}>调整我的边界 <span>→</span></button><button className="round-request-button" onClick={onDiscuss}>返回房间讨论</button></div> : null}{error && <p className="form-error" role="alert">{error}</p>}</section>;
   }
   const fair = [...ranked].sort((a, b) => b.minUtility - a.minUtility || b.geoMean - a.geoMean)[0];
   const easy = [...ranked].sort((a, b) => (a.meanTravelMinutes ?? 999) - (b.meanTravelMinutes ?? 999) || (a.priceValue ?? 9999) - (b.priceValue ?? 9999))[0];

@@ -15,3 +15,12 @@ export function getRoundControlVisibility(input: { currentRound: number; creator
     canRequestRefresh: !isCreator && input.submitted && input.currentRound < 3,
   };
 }
+
+export function getRefreshRequestControl(input: { canRequestRefresh: boolean; requested: boolean }) {
+  return {
+    visible: input.canRequestRefresh,
+    requested: input.requested,
+    label: input.requested ? "取消换一批请求" : "这批都没感觉，请求换一批",
+    nextRequested: !input.requested,
+  };
+}

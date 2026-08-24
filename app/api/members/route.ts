@@ -1,6 +1,7 @@
 import { getStoredRoom, joinStoredRoom, updateStoredMember } from "../../../lib/room-store";
 import type { Choice, PreferenceExtraction } from "../../../lib/couju";
 import { geocodeOrigin } from "../../../lib/amap";
+import { isChoiceRecord } from "../../../lib/member-submission";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +37,11 @@ export async function PATCH(request: Request) {
   const memberId = cleanText(body.memberId, 64);
   const token = cleanText(body.token, 128);
   if (!/^[A-Z0-9]{6}$/.test(roomCode) || !memberId || !token) return Response.json({ error: "成员身份无效" }, { status: 400 });
-  const choices = body.choices && typeof body.choices === "object" ? body.choices as Record<string, Choice> : {};
+  const expectedRound = body.expectedRound;
+  if (typeof expectedRound !== "number" || !Number.isInteger(expectedRound) || expectedRound < 1 || expectedRound > 3 || !isChoiceRecord(body.choices)) {
+    return Response.json({ error: "轮次或 12 张候选选择无效" }, { status: 400 });
+  }
+  const choices = body.choices as Record<string, Choice>;
   const extraction = body.extraction && typeof body.extraction === "object" ? body.extraction as PreferenceExtraction : null;
   try {
     const updated = await updateStoredMember({
@@ -49,8 +54,13 @@ export async function PATCH(request: Request) {
       note: cleanText(body.note, 500),
       extraction,
       choices,
+      expectedRound,
     });
-    if (!updated) return Response.json({ error: "成员身份已失效，请重新加入" }, { status: 403 });
+    if (!updated.ok) {
+      if (updated.code === "UNAUTHORIZED") return Response.json({ error: "成员身份已失效，请重新加入" }, { status: 403 });
+      if (updated.code === "STALE_ROUND") return Response.json({ error: "房间已进入下一轮，请刷新后重新选择" }, { status: 409 });
+      return Response.json({ error: "必须且只能评价当前轮全部 12 张候选" }, { status: 400 });
+    }
     return Response.json({ ok: true });
   } catch (error) {
     console.error("[members:update]", error);

@@ -1,6 +1,6 @@
 import { GET as getCandidates } from "../candidates/route";
 import { DEFAULT_INTERESTS, type Candidate } from "../../../lib/couju";
-import { aggregateRoundFeedback, buildNextRoundSlots, normalizeFeedbackInterestScores, RoundCompositionError } from "../../../lib/rounds";
+import { aggregatePrivateCategoryPenalties, aggregateRoundFeedback, applyCategoryPenalties, buildNextRoundSlots, normalizeFeedbackInterestScores, selectQualifiedExploration, RoundCompositionError } from "../../../lib/rounds";
 import { collectAdvanceExcludedIds, evaluateAdvanceGate, evaluatePrivateDiscoveryGate, executeGuardedGeneration, validateRoundActionPayload } from "../../../lib/round-api";
 import type { CandidateMeta, RoundMutationFailure, StoredMember, StoredRoom } from "../../../lib/room-store";
 
@@ -112,6 +112,8 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
   if (!execution.ok) {
     return execution.code === "GENERATION_FAILED"
       ? error("下一轮候选生成失败，当前轮次没有改变", execution.status)
+      : execution.code === "SERVICE_FAILED"
+        ? error("房间数据暂时无法更新，请稍后再试", execution.status)
       : advanceGateResponse(execution.code, execution.status);
   }
   return mutationResponse(execution.value);
@@ -135,7 +137,8 @@ async function generateNextRound(request: Request, room: StoredRoom): Promise<Ne
     .sort((left, right) => right[1] - left[1])
     .map(([category]) => category)
     .slice(0, 6);
-  const exploreInterests = explorationInterests(room, new Set(learnedInterests));
+  const exploreInterests = explorationInterests(room);
+  if (exploreInterests.length < 4) throw new CandidateGenerationError("没有足够的未探索类别组成四张探索卡");
   const nominationIds = nominations.map((candidate) => candidate.source.providerId || candidate.id);
   const sharedExclude = [...new Set([...excludedIds, ...nominationIds])];
   const exploration = await fetchCandidateBatch(request, {
@@ -146,7 +149,7 @@ async function generateNextRound(request: Request, room: StoredRoom): Promise<Ne
     explore: exploreInterests,
     seed: `explore:${room.code}:${room.currentRound}`,
   });
-  const reservedExploration = exploration.candidates.slice(0, 4);
+  const reservedExploration = selectQualifiedExploration(exploration.candidates, exploreInterests, seenCategories(room));
   const learned = await fetchCandidateBatch(request, {
     city: room.config.city,
     kind: room.config.kind,
@@ -254,12 +257,24 @@ function unseenCategories(room: StoredRoom) {
 }
 
 function aggregateInterestScores(room: StoredRoom, feedback: ReturnType<typeof aggregateRoundFeedback>) {
-  return normalizeFeedbackInterestScores(room.config.kind, feedback.categoryScores);
+  let scores = normalizeFeedbackInterestScores(room.config.kind, feedback.categoryScores);
+  scores = applyCategoryPenalties(scores, normalizeFeedbackInterestScores(room.config.kind, aggregatePrivateCategoryPenalties(room.members)));
+  for (const entry of room.roundHistory) {
+    scores = applyCategoryPenalties(scores, normalizeFeedbackInterestScores(room.config.kind, new Map(Object.entries(entry.feedback.categoryScores))));
+    scores = applyCategoryPenalties(scores, normalizeFeedbackInterestScores(room.config.kind, new Map(Object.entries(entry.privateCategoryPenalties ?? {}))));
+  }
+  return scores;
 }
 
-function explorationInterests(room: StoredRoom, learned: Set<string>) {
-  const unseen = unseenCategories(room).filter((category) => !learned.has(category));
-  return unseen.length ? unseen : DEFAULT_INTERESTS[room.config.kind].filter((category) => !learned.has(category));
+function explorationInterests(room: StoredRoom) {
+  return unseenCategories(room);
+}
+
+function seenCategories(room: StoredRoom) {
+  return new Set([
+    ...room.roundHistory.flatMap((entry) => entry.categories.map((category) => normalizeCategory(room.config.kind, category)).filter((category): category is string => Boolean(category))),
+    ...room.candidates.map((candidate) => candidateCategory(room.config.kind, candidate)).filter((category): category is string => Boolean(category)),
+  ]);
 }
 
 function candidateCategory(kind: StoredRoom["config"]["kind"], candidate: Candidate) {

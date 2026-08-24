@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getRoundControlVisibility, reconcileAuthoritativeRound } from "../lib/round-client-state.ts";
+import { getRefreshRequestControl, getRoundControlVisibility, reconcileAuthoritativeRound } from "../lib/round-client-state.ts";
 
 test("external or local successful advance resets only round-scoped client state", () => {
   assert.deepEqual(reconcileAuthoritativeRound({ knownRound: 1, nextRound: 2 }), {
@@ -13,6 +13,12 @@ test("external or local successful advance resets only round-scoped client state
     resetRoundScopedState: false,
     nextStage: null,
   });
+});
+
+test("a member can request and then cancel the current round refresh", () => {
+  assert.deepEqual(getRefreshRequestControl({ canRequestRefresh: true, requested: false }), { visible: true, requested: false, label: "这批都没感觉，请求换一批", nextRequested: true });
+  assert.deepEqual(getRefreshRequestControl({ canRequestRefresh: true, requested: true }), { visible: true, requested: true, label: "取消换一批请求", nextRequested: false });
+  assert.deepEqual(getRefreshRequestControl({ canRequestRefresh: false, requested: true }), { visible: false, requested: true, label: "取消换一批请求", nextRequested: false });
 });
 
 test("same-round stale refresh preserves local choices and creator visibility follows submitted membership", () => {

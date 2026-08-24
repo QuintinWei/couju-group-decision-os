@@ -1,7 +1,7 @@
 import type { Candidate, Choice } from "./couju";
 
 export type RoundClientAction =
-  | { action: "request"; requested: true }
+  | { action: "request"; requested: boolean }
   | { action: "private-discovery" }
   | { action: "nominate"; candidateId: string | null };
 

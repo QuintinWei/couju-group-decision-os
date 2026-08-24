@@ -1,8 +1,9 @@
 import { getD1 } from "../db";
 import type { Candidate, Choice, PreferenceExtraction, RoomConfig } from "./couju";
-import { aggregateRoundFeedback, type RoundFeedback } from "./rounds";
+import { aggregatePrivateCategoryPenalties, aggregateRoundFeedback, type RoundFeedback } from "./rounds";
 import { allCurrentMembersSubmitted } from "./round-api";
 import { hasSubmittedMembersAtAdvanceBoundary } from "./round-store-guard";
+import { validateMemberSubmission } from "./member-submission";
 
 export type CandidateMeta = {
   mode: "live" | "demo";
@@ -42,6 +43,7 @@ export type RoundHistoryEntry = {
   categories: string[];
   feedback: SerializedRoundFeedback;
   privateRejectedCandidateIds?: string[];
+  privateCategoryPenalties?: Record<string, number>;
   reason: string;
   startedAt: string;
   endedAt: string;
@@ -209,15 +211,22 @@ export async function updateStoredMember(input: {
   note: string;
   extraction: PreferenceExtraction | null;
   choices: Record<string, Choice>;
-}) {
+  expectedRound: number;
+}): Promise<{ ok: true } | { ok: false; code: "UNAUTHORIZED" | "STALE_ROUND" | "INVALID_CHOICES" | "INVALID_SHARED_CANDIDATES" }> {
   const db = getD1();
-  const row = await db.prepare("SELECT token_hash FROM members WHERE id = ? AND room_code = ? LIMIT 1").bind(input.memberId, input.roomCode).first<{ token_hash: string }>();
-  if (!row || !safeEqual(row.token_hash, await hashToken(input.token))) return false;
+  const member = await authenticateMember(input);
+  if (!member) return { ok: false, code: "UNAUTHORIZED" };
+  const room = await db.prepare("SELECT current_round, candidates_json FROM rooms WHERE code = ? LIMIT 1").bind(input.roomCode).first<{ current_round: number; candidates_json: string }>();
+  if (!room || room.current_round !== input.expectedRound) return { ok: false, code: "STALE_ROUND" };
+  const candidateIds = safeJson<Candidate[]>(room.candidates_json, []).map((candidate) => candidate.id);
+  const validation = validateMemberSubmission({ expectedRound: input.expectedRound, currentRound: room.current_round, candidateIds, choices: input.choices });
+  if (!validation.ok) return { ok: false, code: validation.code === "INVALID_SHARED_CANDIDATES" ? "INVALID_SHARED_CANDIDATES" : validation.code === "STALE_ROUND" ? "STALE_ROUND" : "INVALID_CHOICES" };
   const now = new Date().toISOString();
-  await db.prepare("UPDATE members SET budget_label = ?, commute_label = ?, setting = ?, note = ?, extraction_json = ?, choices_json = ?, submitted_at = ?, updated_at = ? WHERE id = ? AND room_code = ?")
-    .bind(input.budgetLabel, input.commuteLabel, input.setting, input.note, JSON.stringify(input.extraction), JSON.stringify(input.choices), now, now, input.memberId, input.roomCode).run();
-  await db.prepare("UPDATE rooms SET updated_at = ? WHERE code = ?").bind(now, input.roomCode).run();
-  return true;
+  const updated = await db.prepare("UPDATE members SET budget_label = ?, commute_label = ?, setting = ?, note = ?, extraction_json = ?, choices_json = ?, submitted_at = ?, updated_at = ? WHERE id = ? AND room_code = ? AND EXISTS (SELECT 1 FROM rooms WHERE code = ? AND current_round = ?)")
+    .bind(input.budgetLabel, input.commuteLabel, input.setting, input.note, JSON.stringify(input.extraction), JSON.stringify(input.choices), now, now, input.memberId, input.roomCode, input.roomCode, input.expectedRound).run();
+  if ((updated.meta.changes ?? 0) !== 1) return { ok: false, code: "STALE_ROUND" };
+  await db.prepare("UPDATE rooms SET updated_at = ? WHERE code = ? AND current_round = ?").bind(now, input.roomCode, input.expectedRound).run();
+  return { ok: true };
 }
 
 export async function setRefreshRequest(input: MemberAuth & { requested: boolean; expectedRound: number }): Promise<RoundMutationResult> {
@@ -308,6 +317,7 @@ export async function advanceStoredRound(input: MemberAuth & { expectedRound: nu
     categories: [...new Set(currentCandidates.map((candidate) => candidate.matchedInterest || candidate.type))],
     feedback,
     privateRejectedCandidateIds: await readPrivateRejectedCandidateIds(input.roomCode),
+    privateCategoryPenalties: Object.fromEntries(aggregatePrivateCategoryPenalties(roundMembers)),
     reason: input.reason,
     startedAt: history.at(-1)?.endedAt ?? room.created_at,
     endedAt: now,
