@@ -98,3 +98,19 @@ test("conflict diagnosis names a member instead of exposing their internal id", 
   assert.match(reason?.message ?? "", /小林/);
   assert.doesNotMatch(reason?.message ?? "", /member-private-id/);
 });
+
+test("conflict diagnosis ranks partial member impacts when members jointly eliminate every card", () => {
+  const pool = getDemoCandidates("上海", "activity").slice(0, 4);
+  const config = { kind: "activity", city: "上海", date: "2026-08-24", startTime: "18:00", endTime: "21:30", people: 2 };
+  const members = [
+    { id: "a", name: "小安", choices: { [pool[0].id]: "no", [pool[1].id]: "no", [pool[2].id]: "okay", [pool[3].id]: "okay" }, submittedAt: "2026-08-24T00:00:00.000Z" },
+    { id: "b", name: "小北", choices: { [pool[0].id]: "okay", [pool[1].id]: "okay", [pool[2].id]: "no", [pool[3].id]: "no" }, submittedAt: "2026-08-24T00:00:00.000Z" },
+  ];
+  const reasons = diagnoseRoundConflict(pool, members, config);
+  assert.deepEqual(reasons.slice(0, 2).map((reason) => [reason.type, reason.memberId, reason.affectedCount]), [
+    ["choice_rejection", "a", 2],
+    ["choice_rejection", "b", 2],
+  ]);
+  assert.match(reasons[0].message, /小安/);
+  assert.match(reasons[1].message, /小北/);
+});

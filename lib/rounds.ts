@@ -8,12 +8,13 @@ export type RoundFeedback = {
   seenCandidateIds: string[];
 };
 
-export type ConflictReasonType = "all_rejected" | "commute" | "budget" | "duration" | "no_spicy" | "unknown_hard_fact";
+export type ConflictReasonType = "all_rejected" | "choice_rejection" | "commute" | "budget" | "duration" | "no_spicy" | "unknown_hard_fact";
 
 export type ConflictReason = {
   type: ConflictReasonType;
   memberId?: string;
   candidateIds: string[];
+  affectedCount: number;
   message: string;
 };
 
@@ -130,42 +131,46 @@ export function diagnoseRoundConflict(candidates: Candidate[], members: RoundMem
 
   for (const member of readyMembers) {
     const rejected = allCandidates(candidates, (candidate) => member.choices[candidate.id] === "no");
-    if (rejected.length === candidates.length) {
-      reasons.push({ type: "all_rejected", memberId: member.id, candidateIds: rejected, message: `${memberDisplayName(member)} 拒绝了本轮全部候选` });
-      break;
-    }
+    if (!rejected.length) continue;
+    const allRejected = rejected.length === candidates.length;
+    reasons.push({
+      type: allRejected ? "all_rejected" : "choice_rejection",
+      memberId: member.id,
+      candidateIds: rejected,
+      affectedCount: rejected.length,
+      message: allRejected
+        ? `${memberDisplayName(member)} 拒绝了本轮全部候选`
+        : `${memberDisplayName(member)} 的选择排除了 ${rejected.length}/${candidates.length} 张候选`,
+    });
   }
 
-  const reasonChecks: Array<{ type: ConflictReasonType; matches: (candidate: Candidate, member: RoundMember) => boolean; message: (member: RoundMember) => string }> = [
+  const reasonChecks: Array<{ type: Exclude<ConflictReasonType, "all_rejected" | "choice_rejection" | "unknown_hard_fact">; matches: (candidate: Candidate, member: RoundMember) => boolean; message: (member: RoundMember, count: number) => string }> = [
     { type: "commute", matches: (candidate, member) => {
       const limit = parseCommuteLimit(member.commuteLabel ?? "不限");
       if (limit === null) return false;
       const travel = estimateTravelBetween(member.originLocation ?? null, candidate.location) ?? candidate.estimatedTravelMinutes;
       return travel !== null && travel > limit;
-    }, message: (member) => `${memberDisplayName(member)} 的通勤上限排除了全部候选` },
+    }, message: (member, count) => `${memberDisplayName(member)} 的通勤上限影响了 ${count}/${candidates.length} 张候选` },
     { type: "budget", matches: (candidate, member) => {
       const limits = [parseBudget(member.budgetLabel), numericConstraint(member, "max_budget")].filter((value): value is number => value !== null);
       if (!limits.length || candidate.priceValue === null) return false;
       return candidate.priceValue > Math.min(...limits);
-    }, message: (member) => `${memberDisplayName(member)} 的预算上限排除了全部已知价格候选` },
+    }, message: (member, count) => `${memberDisplayName(member)} 的预算上限影响了 ${count}/${candidates.length} 张候选` },
     { type: "duration", matches: (candidate, member) => {
       const start = Math.max(toMinutes(config.startTime), timeConstraint(member, "arrival_after") ?? 0);
       const end = Math.min(toMinutes(config.endTime), timeConstraint(member, "leave_before") ?? 24 * 60);
       return candidate.durationMinutes > Math.max(0, end - start);
-    }, message: (member) => `${memberDisplayName(member)} 的可用时间短于全部候选建议时长` },
+    }, message: (member, count) => `${memberDisplayName(member)} 的可用时间影响了 ${count}/${candidates.length} 张候选` },
     { type: "no_spicy", matches: (candidate, member) => {
       const noSpicy = member.setting === "不吃辣" || hasConstraint(member, "no_spicy");
       return noSpicy && candidate.features.nonSpicyAvailable === false;
-    }, message: (member) => `${memberDisplayName(member)} 的不吃辣约束排除了全部候选` },
+    }, message: (member, count) => `${memberDisplayName(member)} 的不吃辣约束影响了 ${count}/${candidates.length} 张候选` },
   ];
 
   for (const check of reasonChecks) {
     for (const member of readyMembers) {
       const ids = allCandidates(candidates, (candidate) => check.matches(candidate, member));
-      if (ids.length === candidates.length) {
-        reasons.push({ type: check.type, memberId: member.id, candidateIds: ids, message: check.message(member) });
-        break;
-      }
+      if (ids.length) reasons.push({ type: check.type, memberId: member.id, candidateIds: ids, affectedCount: ids.length, message: check.message(member, ids.length) });
     }
   }
 
@@ -176,8 +181,17 @@ export function diagnoseRoundConflict(candidates: Candidate[], members: RoundMem
     const travel = estimateTravelBetween(member.originLocation ?? null, candidate.location) ?? candidate.estimatedTravelMinutes;
     return (budgetKnown && candidate.priceValue === null) || (commuteKnown && travel === null) || (noSpicy && candidate.features.nonSpicyAvailable === null) || hasConstraint(member, "allergy");
   }));
-  if (unknownIds.length) reasons.push({ type: "unknown_hard_fact", candidateIds: unknownIds, message: "部分硬约束缺少可核验地点事实，无法确认全部候选" });
-  return reasons;
+  if (unknownIds.length) reasons.push({ type: "unknown_hard_fact", candidateIds: unknownIds, affectedCount: unknownIds.length, message: `有 ${unknownIds.length}/${candidates.length} 张候选缺少可核验地点事实` });
+  return reasons.sort(compareConflictImpact);
+}
+
+const CONFLICT_TIE_ORDER: ConflictReasonType[] = ["all_rejected", "choice_rejection", "commute", "budget", "duration", "no_spicy", "unknown_hard_fact"];
+
+function compareConflictImpact(left: ConflictReason, right: ConflictReason) {
+  return right.affectedCount - left.affectedCount
+    || CONFLICT_TIE_ORDER.indexOf(left.type) - CONFLICT_TIE_ORDER.indexOf(right.type)
+    || (left.memberId ?? "").localeCompare(right.memberId ?? "")
+    || left.candidateIds.join(",").localeCompare(right.candidateIds.join(","));
 }
 
 function memberDisplayName(member: RoundMember) {

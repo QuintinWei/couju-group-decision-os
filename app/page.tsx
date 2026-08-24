@@ -23,6 +23,7 @@ import {
 import { requestBrowserPosition } from "../lib/browser-location";
 import type { StoredMember, StoredRoom } from "../lib/room-store";
 import { diagnoseRoundConflict } from "../lib/rounds";
+import { getRoundControlVisibility, reconcileAuthoritativeRound } from "../lib/round-client-state";
 import { canRequestPrivateDiscovery, privateDiscoveryFailure, privateDiscoveryRequestPlan, privateNominationAction, togglePrivateNomination, type RoundClientAction } from "../lib/private-discovery-flow";
 
 type CandidateMeta = { mode: DataMode; label: string; fetchedAt: string; disclaimer?: string; keywords?: string[]; avoid?: string[]; page?: number; center?: GeoPoint | null; seed?: string; focused?: boolean; strategy?: "explore" | "focused" | "learn"; commuteWindow?: string };
@@ -121,6 +122,7 @@ export default function Home() {
   const [advanceLoading, setAdvanceLoading] = useState(false);
   const [toast, setToast] = useState("");
   const pointerStart = useRef<number | null>(null);
+  const knownRoundRef = useRef<number | null>(null);
 
   const ranked = useMemo(() => rankCandidates(candidates, room?.members ?? [], config, excludedIds, appliedVetoReason), [candidates, room?.members, config, excludedIds, appliedVetoReason]);
   const mainResult = ranked[0] ?? null;
@@ -146,7 +148,15 @@ export default function Home() {
       const response = await fetch(`/api/rooms?code=${encodeURIComponent(code)}`, { cache: "no-store" });
       const payload = await response.json() as { room?: StoredRoom; error?: string };
       if (!response.ok || !payload.room) throw new Error(payload.error || "房间加载失败");
+      const roundTransition = reconcileAuthoritativeRound({ knownRound: knownRoundRef.current, nextRound: payload.room.currentRound });
+      knownRoundRef.current = payload.room.currentRound;
       setRoom(payload.room); setConfig(payload.room.config); setCandidates(payload.room.candidates); setCandidateMeta(payload.room.meta); setRoomError("");
+      if (roundTransition.resetRoundScopedState) {
+        setCardIndex(0); setSwipes({}); setPrivateCandidates([]); setPrivateNominationId(null); setPrivateError("");
+        setRankingStep(0); setAiExplanation(null); setVetoOpen(false); setVetoTarget(null); setExcludedIds([]); setAppliedVetoReason(""); setLockedResult(null); setAdvanceConfirmOpen(false);
+        if (roundTransition.nextStage) setStage(roundTransition.nextStage);
+        setToast(`房间已进入第 ${payload.room.currentRound}/3 轮，请重新选择这 12 张卡`);
+      }
       return payload.room;
     } catch (error) {
       setRoomError(error instanceof Error ? error.message : "房间加载失败");
@@ -168,14 +178,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!roomCode || !["room", "ranking", "results"].includes(stage)) return;
+    if (!roomCode || !["room", "setup", "swipe", "constraints", "private-discovery", "ranking", "results", "locked"].includes(stage)) return;
     const timer = window.setInterval(() => { void refreshRoom(roomCode, true); }, 4000);
     return () => window.clearInterval(timer);
   }, [roomCode, stage]);
 
   const resetSession = () => {
     const next = createDefaultConfig();
-    setStage("home"); setConfig(next); setCandidates(getDemoCandidates(next.city, next.kind)); setRoom(null); setRoomCode(""); setIdentity(null); setRoomError("");
+    setStage("home"); setConfig(next); setCandidates(getDemoCandidates(next.city, next.kind)); setRoom(null); setRoomCode(""); setIdentity(null); setRoomError(""); knownRoundRef.current = null;
     window.history.replaceState({}, "", window.location.pathname);
     setCandidateMeta({ mode: "demo", label: "凑局演示候选库", fetchedAt: "2026-08-21T00:00:00.000Z", disclaimer: "当前为演示候选，不代表实时商户、价格或可订状态。" });
     setCardIndex(0); setSwipes({}); setBudget("≤ ¥150"); setCommute("≤ 60 分钟"); setSetting("都可以");
@@ -500,10 +510,11 @@ function RoomScreen({ room, currentMember, syncing, error, onShare, onPreference
   const doneCount = room.members.filter((member) => member.submittedAt).length;
   const enough = doneCount >= 2;
   const allSubmitted = room.members.length > 0 && doneCount === room.members.length;
-  const isCreator = room.members[0]?.id === currentMember?.id;
+  const controls = getRoundControlVisibility({ currentRound: room.currentRound, creatorId: room.members[0]?.id, memberId: currentMember?.id, allSubmitted, submitted: Boolean(currentMember?.submittedAt) });
+  const isCreator = controls.isCreator;
   const requestCount = room.members.filter((member) => member.refreshRequestRound === room.currentRound).length;
-  const canAdvance = isCreator && allSubmitted && room.currentRound < 3;
-  return <section className="flow-page room-page"><div className="room-kicker"><span>{config.city} · {config.kind === "dining" ? "聚餐" : "活动"}</span><b>房间 {room.code}</b></div><ScreenTitle eyebrow={`${config.kind === "dining" ? "DINNER" : "WEEKEND"} IN ${config.city.toUpperCase()}`} title={roomTitle(config.kind)} detail={`${formatDate(config.date)} · ${config.startTime}–${config.endTime} · ${config.city}`} /><div className="data-audit-strip"><span className={`source-dot ${meta.mode}`} /><b>{room.candidates.length} 个候选 · {meta.label}</b><span>{room.members.length}/{config.people} 人已加入</span><span>{syncing ? "同步中" : "每 4 秒同步"}</span></div><div className="room-grid"><div className="room-main-card"><div className="room-card-head"><div><span>真实成员</span><strong>{doneCount}/{room.members.length} 已提交</strong></div><i>{allSubmitted && enough ? "可以计算真实交集" : "等待所有已加入成员提交"}</i></div><div className="member-list">{room.members.map((member) => <div key={member.id} className={member.submittedAt ? "member done" : "member pending"}><div className="avatar">{member.name.slice(0, 1).toUpperCase()}{member.submittedAt && <span>✓</span>}</div><div><b>{member.name}{member.id === currentMember?.id ? " · 你" : ""}</b><small>{member.origin} · {member.submittedAt ? "偏好已提交" : "等待提交"}</small></div><em>{member.submittedAt ? "完成" : "待完成"}</em></div>)}</div>{!currentMember?.submittedAt ? <button className="full-dark-button pulse" onClick={onPreference}>开始划这批候选 <span>→</span></button> : <div className="room-actions"><button className="quiet-button" onClick={onPreference}>修改我的偏好</button><button className="full-dark-button lime-button" onClick={onRank} disabled={!enough || !allSubmitted}>计算真实交集 <span>✦</span></button></div>}<p className="privacy-note">⌾ 位置用于候选范围和通勤估算；每个人的通勤上限仍会作为最终硬筛选。</p></div><aside className="invite-card"><span className="big-source-mark live">{room.code}</span><h3>把链接发给朋友</h3><p>对方不需要注册，填写昵称和大致出发地后就能独立选择。</p><button onClick={onShare}>复制房间链接 <span>↗</span></button><small>{room.members.length < config.people ? `还可加入 ${config.people - room.members.length} 人` : "房间人数已满"}</small>{error && <p className="form-error">{error}</p>}</aside></div><section className="round-status-card" aria-label="本轮协作状态"><div><span>共享卡池</span><b>第 {room.currentRound}/3 轮</b><small>{doneCount}/{room.members.length} 人已提交 · {requestCount} 人请求换一批</small></div>{room.currentRound >= 3 ? <p>已经完成三轮探索；若仍没有交集，系统会说明最需要调整的边界。</p> : canAdvance ? <button className="full-dark-button" onClick={onOpenAdvance}>根据全体反馈开启下一轮 <span>→</span></button> : currentMember?.submittedAt && !isCreator ? <button className="round-request-button" onClick={onRequestNextRound}>请求房主换一批</button> : <p>{isCreator ? "全员提交后，才可以根据反馈开启下一轮。" : "提交本轮选择后，可以请求房主换一批。"}</p>}</section><div className="public-constraint"><b>本轮配置</b><span>{formatDate(config.date)} {config.startTime}–{config.endTime}</span><span>{config.city}市</span><span>{meta.commuteWindow || "全城探索"}</span><span>目标 {config.people} 人</span><i>{meta.focused ? `按想法：${meta.keywords?.join("、")}` : "探索模式 · 按通勤范围召回"}</i></div></section>;
+  const canAdvance = controls.canAdvance;
+  return <section className="flow-page room-page"><div className="room-kicker"><span>{config.city} · {config.kind === "dining" ? "聚餐" : "活动"}</span><b>房间 {room.code}</b></div><ScreenTitle eyebrow={`${config.kind === "dining" ? "DINNER" : "WEEKEND"} IN ${config.city.toUpperCase()}`} title={roomTitle(config.kind)} detail={`${formatDate(config.date)} · ${config.startTime}–${config.endTime} · ${config.city}`} /><div className="data-audit-strip"><span className={`source-dot ${meta.mode}`} /><b>{room.candidates.length} 个候选 · {meta.label}</b><span>{room.members.length}/{config.people} 人已加入</span><span>{syncing ? "同步中" : "每 4 秒同步"}</span></div><div className="room-grid"><div className="room-main-card"><div className="room-card-head"><div><span>真实成员</span><strong>{doneCount}/{room.members.length} 已提交</strong></div><i>{allSubmitted && enough ? "可以计算真实交集" : "等待所有已加入成员提交"}</i></div><div className="member-list">{room.members.map((member) => <div key={member.id} className={member.submittedAt ? "member done" : "member pending"}><div className="avatar">{member.name.slice(0, 1).toUpperCase()}{member.submittedAt && <span>✓</span>}</div><div><b>{member.name}{member.id === currentMember?.id ? " · 你" : ""}</b><small>{member.origin} · {member.submittedAt ? "偏好已提交" : "等待提交"}</small></div><em>{member.submittedAt ? "完成" : "待完成"}</em></div>)}</div>{!currentMember?.submittedAt ? <button className="full-dark-button pulse" onClick={onPreference}>开始划这批候选 <span>→</span></button> : <div className="room-actions"><button className="quiet-button" onClick={onPreference}>修改我的偏好</button><button className="full-dark-button lime-button" onClick={onRank} disabled={!enough || !allSubmitted}>计算真实交集 <span>✦</span></button></div>}<p className="privacy-note">⌾ 位置用于候选范围和通勤估算；每个人的通勤上限仍会作为最终硬筛选。</p></div><aside className="invite-card"><span className="big-source-mark live">{room.code}</span><h3>把链接发给朋友</h3><p>对方不需要注册，填写昵称和大致出发地后就能独立选择。</p><button onClick={onShare}>复制房间链接 <span>↗</span></button><small>{room.members.length < config.people ? `还可加入 ${config.people - room.members.length} 人` : "房间人数已满"}</small>{error && <p className="form-error">{error}</p>}</aside></div><section className="round-status-card" aria-label="本轮协作状态"><div><span>共享卡池</span><b>第 {room.currentRound}/3 轮</b><small>{doneCount}/{room.members.length} 人已提交 · {requestCount} 人请求换一批</small></div>{room.currentRound >= 3 ? <p>已经完成三轮探索；若仍没有交集，系统会说明最需要调整的边界。</p> : canAdvance ? <button className="full-dark-button" onClick={onOpenAdvance}>根据全体反馈开启下一轮 <span>→</span></button> : controls.canRequestRefresh ? <button className="round-request-button" onClick={onRequestNextRound}>请求房主换一批</button> : <p>{isCreator ? "全员提交后，才可以根据反馈开启下一轮。" : "提交本轮选择后，可以请求房主换一批。"}</p>}</section><div className="public-constraint"><b>本轮配置</b><span>{formatDate(config.date)} {config.startTime}–{config.endTime}</span><span>{config.city}市</span><span>{meta.commuteWindow || "全城探索"}</span><span>目标 {config.people} 人</span><i>{meta.focused ? `按想法：${meta.keywords?.join("、")}` : "探索模式 · 按通勤范围召回"}</i></div></section>;
 }
 
 function PreferenceSetupScreen(props: { config: RoomConfig; budget: string; commute: string; setting: string; setBudget: (value: string) => void; setCommute: (value: string) => void; setSetting: (value: string) => void; onBack: () => void; onContinue: () => void }) {
@@ -541,13 +552,14 @@ function RankingScreen({ config, step, candidates, ranked, meta }: { config: Roo
 function ResultsScreen({ config, room, currentMember, ranked, meta, members, aiExplanation, error, advancing, onVeto, onLock, onAdjust, onDiscuss, onRequestNextRound, onOpenAdvance }: { config: RoomConfig; room: StoredRoom; currentMember: StoredMember | null; ranked: RankedCandidate[]; meta: CandidateMeta; members: StoredMember[]; aiExplanation: AiExplanation | null; error: string; advancing: boolean; onVeto: (selected: RankedCandidate) => void; onLock: (selected: RankedCandidate) => void; onAdjust: () => void; onDiscuss: () => void; onRequestNextRound: () => void; onOpenAdvance: () => void }) {
   const [selectedStrategy, setSelectedStrategy] = useState(0);
   const main = ranked[0];
-  const isCreator = room.members[0]?.id === currentMember?.id;
   const allSubmitted = room.members.length > 0 && room.members.every((member) => Boolean(member.submittedAt));
+  const controls = getRoundControlVisibility({ currentRound: room.currentRound, creatorId: room.members[0]?.id, memberId: currentMember?.id, allSubmitted, submitted: Boolean(currentMember?.submittedAt) });
+  const isCreator = controls.isCreator;
   const requestCount = room.members.filter((member) => member.refreshRequestRound === room.currentRound).length;
-  const canAdvance = isCreator && allSubmitted && room.currentRound < 3;
+  const canAdvance = controls.canAdvance;
   if (!main) {
     const reasons = room.currentRound >= 3 ? diagnoseRoundConflict(room.candidates, room.members, config).slice(0, 2) : [];
-    return <section className="flow-page results-page no-solution"><span className="no-solution-icon">∅</span><h1>{room.currentRound >= 3 ? "已经完成三轮探索" : "没有交集，换一批继续选"}</h1><p>{room.currentRound >= 3 ? "系统不会强行给出一个不合适的答案。下面是本轮最影响交集的边界。" : "系统没有强行生成 Top 1；保留已确认的边界和反馈，下一轮会换成新的共享卡池。"}</p>{room.currentRound >= 3 ? <div className="conflict-panel" role="status"><b>本轮冲突诊断</b>{reasons.length ? <ul>{reasons.map((reason) => <li key={`${reason.type}-${reason.memberId || "group"}`}>{reason.message}</li>)}</ul> : <p>没有单一硬约束阻断结果；建议一起调整预算、通勤或场景偏好。</p>}</div> : <div className="zero-result-actions">{canAdvance ? <button className="full-dark-button" onClick={onOpenAdvance} disabled={advancing}>{advancing ? "正在准备下一轮…" : "根据全体反馈开启下一轮"} <span>→</span></button> : currentMember?.submittedAt ? <button className="full-dark-button" onClick={onRequestNextRound}>请求房主换一批 <span>→</span></button> : null}<small>{requestCount} 人请求换一批{!isCreator ? " · 房主会在所有成员提交后推进" : ""}</small></div>}{room.currentRound >= 3 ? <div className="conflict-actions"><button className="full-dark-button" onClick={onAdjust}>调整我的边界 <span>→</span></button><button className="round-request-button" onClick={onDiscuss}>返回房间讨论</button></div> : null}{error && <p className="form-error" role="alert">{error}</p>}</section>;
+    return <section className="flow-page results-page no-solution"><span className="no-solution-icon">∅</span><h1>{room.currentRound >= 3 ? "已经完成三轮探索" : "没有交集，换一批继续选"}</h1><p>{room.currentRound >= 3 ? "系统不会强行给出一个不合适的答案。下面是本轮最影响交集的边界。" : "系统没有强行生成 Top 1；保留已确认的边界和反馈，下一轮会换成新的共享卡池。"}</p>{room.currentRound >= 3 ? <div className="conflict-panel" role="status"><b>本轮冲突诊断</b>{reasons.length ? <ul>{reasons.map((reason) => <li key={`${reason.type}-${reason.memberId || "group"}`}>{reason.message}</li>)}</ul> : <p>没有单一硬约束阻断结果；建议一起调整预算、通勤或场景偏好。</p>}</div> : <div className="zero-result-actions">{canAdvance ? <button className="full-dark-button" onClick={onOpenAdvance} disabled={advancing}>{advancing ? "正在准备下一轮…" : "根据全体反馈开启下一轮"} <span>→</span></button> : controls.canRequestRefresh ? <button className="full-dark-button" onClick={onRequestNextRound}>请求房主换一批 <span>→</span></button> : null}<small>{requestCount} 人请求换一批{!isCreator ? " · 房主会在所有成员提交后推进" : ""}</small></div>}{room.currentRound >= 3 ? <div className="conflict-actions"><button className="full-dark-button" onClick={onAdjust}>调整我的边界 <span>→</span></button><button className="round-request-button" onClick={onDiscuss}>返回房间讨论</button></div> : null}{error && <p className="form-error" role="alert">{error}</p>}</section>;
   }
   const fair = [...ranked].sort((a, b) => b.minUtility - a.minUtility || b.geoMean - a.geoMean)[0];
   const easy = [...ranked].sort((a, b) => (a.meanTravelMinutes ?? 999) - (b.meanTravelMinutes ?? 999) || (a.priceValue ?? 9999) - (b.priceValue ?? 9999))[0];
