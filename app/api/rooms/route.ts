@@ -1,4 +1,4 @@
-import { createStoredRoom, getStoredRoom, replaceRoomCandidates } from "../../../lib/room-store";
+import { createStoredRoom, getStoredRoom } from "../../../lib/room-store";
 import { SUPPORTED_CITIES, type Candidate, type RoomConfig } from "../../../lib/couju";
 import { geocodeOrigin } from "../../../lib/amap";
 
@@ -38,26 +38,6 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[rooms:create]", error);
     return Response.json({ error: "房间创建失败，请稍后重试" }, { status: 503 });
-  }
-}
-
-export async function PATCH(request: Request) {
-  let body: Record<string, unknown>;
-  try { body = await request.json() as Record<string, unknown>; }
-  catch { return Response.json({ error: "请求内容无效" }, { status: 400 }); }
-  const roomCode = cleanText(body.roomCode, 6).toUpperCase();
-  const memberId = cleanText(body.memberId, 64);
-  const token = cleanText(body.token, 128);
-  const candidates = Array.isArray(body.candidates) ? body.candidates as Candidate[] : [];
-  const meta = body.meta && typeof body.meta === "object" ? body.meta as { mode: "live" | "demo"; label: string; fetchedAt: string } : null;
-  if (!/^[A-Z0-9]{6}$/.test(roomCode) || !memberId || !token || candidates.length < 1 || !meta) return Response.json({ error: "候选更新请求无效" }, { status: 400 });
-  try {
-    const updated = await replaceRoomCandidates({ roomCode, memberId, token, candidates, meta });
-    if (!updated) return Response.json({ error: "只有房间发起人可以更换候选" }, { status: 403 });
-    return Response.json({ ok: true });
-  } catch (error) {
-    console.error("[rooms:replace]", error);
-    return Response.json({ error: "更换候选失败，请稍后重试" }, { status: 503 });
   }
 }
 

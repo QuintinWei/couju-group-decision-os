@@ -80,6 +80,23 @@ test("persists explicit shared-decision round fields in the D1 schema", async ()
   assert.match(schema, /nominatedCandidateJson: text\("nominated_candidate_json"\)/);
 });
 
+test("round storage rejects legacy replacement and validates private and shared round payloads", async () => {
+  const [roomStore, roomsRoute] = await Promise.all([
+    readFile(new URL("../lib/room-store.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/rooms/route.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(roomsRoute, /export async function PATCH/);
+  assert.doesNotMatch(roomStore, /replaceRoomCandidates/);
+  assert.match(roomStore, /input\.candidates\.length !== 3/);
+  assert.match(roomStore, /hasUniqueProviderIds\(input\.candidates\)/);
+  assert.match(roomStore, /input\.candidates\.length !== 12/);
+  assert.match(roomStore, /code: "NOT_CREATOR"/);
+  assert.match(roomStore, /code: "STALE_ROUND"/);
+  assert.match(roomStore, /startedAt: history\.at\(-1\)\?\.endedAt \?\? room\.created_at/);
+  assert.match(roomStore, /budget_label|commute_label|origin_lng|extraction_json/);
+});
+
 test("candidate endpoint keeps a citywide pool and leaves commute limits to member ranking", async () => {
   const base = "/api/candidates?city=%E4%B8%8A%E6%B5%B7&kind=dining&location=121.47,31.23&seed=citywide-test";
   const [response, restrictedResponse] = await Promise.all([

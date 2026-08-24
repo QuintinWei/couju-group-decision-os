@@ -102,7 +102,7 @@ export type MemberAuth = {
 
 export type RoundMutationFailure = {
   ok: false;
-  code: "UNAUTHORIZED" | "STALE_ROUND" | "NOT_CREATOR" | "MAX_ROUNDS" | "INVALID_NOMINATION";
+  code: "UNAUTHORIZED" | "STALE_ROUND" | "NOT_CREATOR" | "MAX_ROUNDS" | "INVALID_NOMINATION" | "INVALID_CANDIDATES";
 };
 
 export type RoundMutationResult =
@@ -210,20 +210,6 @@ export async function updateStoredMember(input: {
   return true;
 }
 
-export async function replaceRoomCandidates(input: { roomCode: string; memberId: string; token: string; candidates: Candidate[]; meta: CandidateMeta }) {
-  const db = getD1();
-  const creator = await db.prepare("SELECT id, token_hash FROM members WHERE room_code = ? ORDER BY created_at ASC LIMIT 1").bind(input.roomCode).first<{ id: string; token_hash: string }>();
-  if (!creator || creator.id !== input.memberId || !safeEqual(creator.token_hash, await hashToken(input.token))) return false;
-  const now = new Date().toISOString();
-  await db.batch([
-    db.prepare("UPDATE rooms SET candidates_json = ?, candidate_meta_json = ?, updated_at = ? WHERE code = ?")
-      .bind(JSON.stringify(input.candidates.slice(0, 16)), JSON.stringify(input.meta), now, input.roomCode),
-    db.prepare("UPDATE members SET choices_json = NULL, submitted_at = NULL, updated_at = ? WHERE room_code = ?")
-      .bind(now, input.roomCode),
-  ]);
-  return true;
-}
-
 export async function setRefreshRequest(input: MemberAuth & { requested: boolean; expectedRound: number }): Promise<RoundMutationResult> {
   const member = await authenticateMember(input);
   if (!member) return { ok: false, code: "UNAUTHORIZED" };
@@ -244,13 +230,14 @@ export async function setRefreshRequest(input: MemberAuth & { requested: boolean
 export async function savePrivateCandidates(input: MemberAuth & { expectedRound: number; candidates: Candidate[] }): Promise<RoundMutationResult> {
   const member = await authenticateMember(input);
   if (!member) return { ok: false, code: "UNAUTHORIZED" };
+  if (input.candidates.length !== 3 || !hasUniqueProviderIds(input.candidates)) return { ok: false, code: "INVALID_CANDIDATES" };
   const room = await readRoomRound(input.roomCode);
   if (!room || room.current_round !== input.expectedRound) return { ok: false, code: "STALE_ROUND" };
 
   const now = new Date().toISOString();
   const results = await getD1().batch([
     getD1().prepare("UPDATE members SET private_candidates_json = ?, nominated_candidate_json = NULL, updated_at = ? WHERE id = ? AND room_code = ? AND EXISTS (SELECT 1 FROM rooms WHERE code = ? AND current_round = ?)")
-      .bind(JSON.stringify(input.candidates.slice(0, 3)), now, input.memberId, input.roomCode, input.roomCode, input.expectedRound),
+      .bind(JSON.stringify(input.candidates), now, input.memberId, input.roomCode, input.roomCode, input.expectedRound),
     getD1().prepare("UPDATE rooms SET updated_at = ? WHERE code = ? AND current_round = ?")
       .bind(now, input.roomCode, input.expectedRound),
   ]);
@@ -284,6 +271,7 @@ export async function nominatePrivateCandidate(input: MemberAuth & { expectedRou
 export async function advanceStoredRound(input: MemberAuth & { expectedRound: number; candidates: Candidate[]; meta: CandidateMeta; reason: string }): Promise<RoundMutationResult> {
   const member = await authenticateMember(input);
   if (!member) return { ok: false, code: "UNAUTHORIZED" };
+  if (input.candidates.length !== 12 || !hasUniqueProviderIds(input.candidates)) return { ok: false, code: "INVALID_CANDIDATES" };
   const db = getD1();
   const [creator, room] = await Promise.all([
     db.prepare("SELECT id FROM members WHERE room_code = ? ORDER BY created_at ASC LIMIT 1").bind(input.roomCode).first<{ id: string }>(),
@@ -295,21 +283,22 @@ export async function advanceStoredRound(input: MemberAuth & { expectedRound: nu
 
   const now = new Date().toISOString();
   const nextRound = room.current_round + 1;
+  const currentCandidates = safeJson<Candidate[]>(room.candidates_json, []);
   const feedback = serializeRoundFeedback(aggregateRoundFeedback(
-    safeJson<Candidate[]>(room.candidates_json, []),
+    currentCandidates,
     await readRoundMembers(input.roomCode),
   ));
   const history = safeJson<RoundHistoryEntry[]>(room.round_history_json, []);
   const nextHistory = [...history, {
     round: room.current_round,
-    candidateIds: safeJson<Candidate[]>(room.candidates_json, []).map((candidate) => candidate.id),
-    categories: [...new Set(safeJson<Candidate[]>(room.candidates_json, []).map((candidate) => candidate.type))],
+    candidateIds: currentCandidates.map((candidate) => candidate.id),
+    categories: [...new Set(currentCandidates.map((candidate) => candidate.type))],
     feedback,
     reason: input.reason,
-    startedAt: room.created_at,
+    startedAt: history.at(-1)?.endedAt ?? room.created_at,
     endedAt: now,
   }];
-  const candidatesJson = JSON.stringify(input.candidates.slice(0, 12));
+  const candidatesJson = JSON.stringify(input.candidates);
   const metaJson = JSON.stringify(input.meta);
   const historyJson = JSON.stringify(nextHistory);
 
@@ -362,6 +351,11 @@ function serializeRoundFeedback(feedback: RoundFeedback): SerializedRoundFeedbac
     ...feedback,
     categoryScores: Object.fromEntries(feedback.categoryScores),
   };
+}
+
+function hasUniqueProviderIds(candidates: Candidate[]): boolean {
+  const ids = candidates.map((candidate) => candidate.source.providerId || candidate.id);
+  return new Set(ids).size === ids.length;
 }
 
 async function createUniqueCode() {
