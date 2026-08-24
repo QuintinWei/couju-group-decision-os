@@ -7,7 +7,7 @@ export type RoundFeedback = {
   seenCandidateIds: string[];
 };
 
-export type ConflictReasonType = "all_rejected" | "commute" | "budget" | "duration" | "unknown_hard_fact";
+export type ConflictReasonType = "all_rejected" | "commute" | "budget" | "duration" | "no_spicy" | "unknown_hard_fact";
 
 export type ConflictReason = {
   type: ConflictReasonType;
@@ -21,10 +21,7 @@ const CHOICE_WEIGHT: Record<Choice, number> = { like: 2, okay: 0.5, no: -1.5 };
 type RoundMember = Pick<GroupMemberPreference, "id" | "choices" | "submittedAt"> & Partial<Pick<GroupMemberPreference, "originLocation" | "budgetLabel" | "commuteLabel" | "setting" | "extraction">>;
 
 export function canRequestPrivateDiscovery(candidateIds: string[], choices: Record<string, Choice>): boolean {
-  // The API validates that the current shared round contains twelve cards;
-  // this pure predicate intentionally only answers the feedback question so
-  // it remains useful for small fixtures and other callers.
-  return candidateIds.length > 0 && candidateIds.every((id) => choices[id] === "no");
+  return candidateIds.length === 12 && candidateIds.every((id) => choices[id] === "no");
 }
 
 export function aggregateRoundFeedback(candidates: Candidate[], members: RoundMember[]): RoundFeedback {
@@ -55,26 +52,34 @@ function addUnique(target: Candidate[], candidates: Candidate[], used: Set<strin
 }
 
 export function buildNextRoundSlots(nominations: Candidate[], learned: Candidate[], exploration: Candidate[]): Candidate[] {
+  const explorationKeys = new Set<string>();
+  for (const candidate of exploration) {
+    const key = providerKey(candidate);
+    if (nominations.some((nomination) => providerKey(nomination) === key)) continue;
+    explorationKeys.add(key);
+  }
+  if (explorationKeys.size < 4) throw new RoundCompositionError("insufficient_exploration", "下一轮至少需要四张未重复的探索卡");
+
   const result: Candidate[] = [];
   const used = new Set<string>();
   addUnique(result, nominations, used, "nomination", 8);
   addUnique(result, learned, used, "learned", 8);
-  addUnique(result, exploration, used, "explore", 12);
-
-  // The caller normally supplies a sufficiently large exploration pool. If it
-  // does not, preserve the fixed twelve-card contract with unused learned or
-  // nomination candidates while keeping four explicit exploration slots.
-  if (result.filter((candidate) => candidate.segment === "explore").length < 4) {
-    const fallback = [...learned, ...nominations];
-    for (const candidate of fallback) {
-      if (result.length >= 12 || result.filter((item) => item.segment === "explore").length >= 4) break;
-      const key = providerKey(candidate);
-      if (used.has(key)) continue;
-      used.add(key);
-      result.push({ ...candidate, segment: "explore" });
-    }
+  if (result.length < 8) throw new RoundCompositionError("insufficient_unique_candidates", "候选池无法提供八张提名或反馈学习卡");
+  addUnique(result, exploration.filter((candidate) => !used.has(providerKey(candidate))), used, "explore", 12);
+  if (result.length !== 12 || result.filter((candidate) => candidate.segment === "explore").length !== 4) {
+    throw new RoundCompositionError("insufficient_unique_candidates", "候选池无法组成十二张且保留四张探索卡");
   }
-  return result.slice(0, 12);
+  return result;
+}
+
+export class RoundCompositionError extends Error {
+  readonly code: "insufficient_exploration" | "insufficient_unique_candidates";
+
+  constructor(code: "insufficient_exploration" | "insufficient_unique_candidates", message: string) {
+    super(message);
+    this.name = "RoundCompositionError";
+    this.code = code;
+  }
 }
 
 function numericConstraint(member: RoundMember, type: string): number | null {
@@ -135,6 +140,10 @@ export function diagnoseRoundConflict(candidates: Candidate[], members: RoundMem
       const end = Math.min(toMinutes(config.endTime), timeConstraint(member, "leave_before") ?? 24 * 60);
       return candidate.durationMinutes > Math.max(0, end - start);
     }, message: (member) => `${member.id} 的可用时间短于全部候选建议时长` },
+    { type: "no_spicy", matches: (candidate, member) => {
+      const noSpicy = member.setting === "不吃辣" || hasConstraint(member, "no_spicy");
+      return noSpicy && candidate.features.nonSpicyAvailable === false;
+    }, message: (member) => `${member.id} 的不吃辣约束排除了全部候选` },
   ];
 
   for (const check of reasonChecks) {
@@ -151,7 +160,8 @@ export function diagnoseRoundConflict(candidates: Candidate[], members: RoundMem
     const budgetKnown = parseBudget(member.budgetLabel) !== null || numericConstraint(member, "max_budget") !== null;
     const commuteKnown = parseCommuteLimit(member.commuteLabel ?? "不限") !== null;
     const noSpicy = member.setting === "不吃辣" || hasConstraint(member, "no_spicy");
-    return (budgetKnown && candidate.priceValue === null) || (commuteKnown && candidate.estimatedTravelMinutes === null) || (noSpicy && candidate.features.nonSpicyAvailable === null) || hasConstraint(member, "allergy");
+    const travel = estimateTravelBetween(member.originLocation ?? null, candidate.location) ?? candidate.estimatedTravelMinutes;
+    return (budgetKnown && candidate.priceValue === null) || (commuteKnown && travel === null) || (noSpicy && candidate.features.nonSpicyAvailable === null) || hasConstraint(member, "allergy");
   }));
   if (unknownIds.length) reasons.push({ type: "unknown_hard_fact", candidateIds: unknownIds, message: "部分硬约束缺少可核验地点事实，无法确认全部候选" });
   return reasons;

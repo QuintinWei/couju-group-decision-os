@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aggregateRoundFeedback, buildNextRoundSlots, canRequestPrivateDiscovery, diagnoseRoundConflict } from "../lib/rounds.ts";
+import { aggregateRoundFeedback, buildNextRoundSlots, canRequestPrivateDiscovery, diagnoseRoundConflict, RoundCompositionError } from "../lib/rounds.ts";
 import { getDemoCandidates } from "../lib/couju.ts";
 
 const candidates = getDemoCandidates("上海", "activity").slice(0, 3);
@@ -10,9 +10,12 @@ const members = [
 ];
 
 test("private discovery requires rejecting every shared candidate", () => {
-  assert.equal(canRequestPrivateDiscovery(["a", "b"], { a: "no", b: "no" }), true);
-  assert.equal(canRequestPrivateDiscovery(["a", "b"], { a: "no", b: "okay" }), false);
-  assert.equal(canRequestPrivateDiscovery(["a", "b"], { a: "no" }), false);
+  const ids = Array.from({ length: 12 }, (_, index) => `candidate-${index}`);
+  const allNo = Object.fromEntries(ids.map((id) => [id, "no"]));
+  assert.equal(canRequestPrivateDiscovery(ids, allNo), true);
+  assert.equal(canRequestPrivateDiscovery(ids, { ...allNo, [ids[11]]: "okay" }), false);
+  assert.equal(canRequestPrivateDiscovery(ids.slice(0, 11), allNo), false);
+  assert.equal(canRequestPrivateDiscovery(["a", "b"], { a: "no", b: "no" }), false);
 });
 
 test("group feedback uses like +2, okay +0.5, no -1.5", () => {
@@ -32,7 +35,17 @@ test("next round keeps nominations, fills learned slots, and reserves four explo
   assert.equal(result.length, 12);
   assert.deepEqual(result.slice(0, nominations.length).map((item) => item.id), nominations.map((item) => item.id));
   assert.equal(result.filter((item) => item.segment === "explore").length, 4);
+  assert.ok(result.filter((item) => item.segment === "explore").every((item) => exploration.some((candidate) => candidate.id === item.id)));
   assert.equal(new Set(result.map((item) => item.id)).size, 12);
+});
+
+test("next round fails explicitly when duplicate pools cannot satisfy twelve unique cards and four genuine explorations", () => {
+  const pool = getDemoCandidates("上海", "dining");
+  const nominations = pool.slice(0, 2);
+  const learned = pool.slice(0, 2);
+  const exploration = pool.slice(0, 3);
+  assert.throws(() => buildNextRoundSlots(nominations, learned, exploration), (error) => error instanceof RoundCompositionError && error.code === "insufficient_exploration");
+  assert.throws(() => buildNextRoundSlots([], pool.slice(0, 3), getDemoCandidates("上海", "activity").slice(0, 4)), (error) => error instanceof RoundCompositionError && error.code === "insufficient_unique_candidates");
 });
 
 test("conflict diagnosis reports all-rejected and hard-filter causes", () => {
@@ -43,4 +56,13 @@ test("conflict diagnosis reports all-rejected and hard-filter causes", () => {
   const commute = { ...rejectedMember, choices: Object.fromEntries(candidates.map((item) => [item.id, "okay"])), commuteLabel: "≤ 30 分钟" };
   const commuteCandidates = candidates.map((item) => ({ ...item, estimatedTravelMinutes: 60 }));
   assert.ok(diagnoseRoundConflict(commuteCandidates, [commute], config).some((reason) => reason.type === "commute"));
+
+  const noSpicy = { ...commute, setting: "不吃辣" };
+  const spicyCandidates = candidates.map((item) => ({ ...item, features: { ...item.features, nonSpicyAvailable: false } }));
+  assert.ok(diagnoseRoundConflict(spicyCandidates, [noSpicy], config).some((reason) => reason.type === "no_spicy"));
+
+  const routeKnown = { ...commute, originLocation: candidates[0].location };
+  const routeCandidate = { ...candidates[0], estimatedTravelMinutes: null };
+  const routeReasons = diagnoseRoundConflict([routeCandidate], [routeKnown], config);
+  assert.equal(routeReasons.some((reason) => reason.type === "unknown_hard_fact"), false);
 });
