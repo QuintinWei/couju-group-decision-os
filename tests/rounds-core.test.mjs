@@ -85,3 +85,16 @@ test("conflict diagnosis reports all-rejected and hard-filter causes", () => {
   const routeReasons = diagnoseRoundConflict([routeCandidate], [routeKnown], config);
   assert.equal(routeReasons.some((reason) => reason.type === "unknown_hard_fact"), false);
 });
+
+test("conflict diagnosis names a member instead of exposing their internal id", () => {
+  const config = { kind: "activity", city: "上海", date: "2026-08-24", startTime: "18:00", endTime: "21:30", people: 2 };
+  const member = {
+    id: "member-private-id",
+    name: "小林",
+    choices: Object.fromEntries(candidates.map((item) => [item.id, "no"])),
+    submittedAt: "2026-08-24T00:00:00.000Z",
+  };
+  const reason = diagnoseRoundConflict(candidates, [member], config).find((item) => item.type === "all_rejected");
+  assert.match(reason?.message ?? "", /小林/);
+  assert.doesNotMatch(reason?.message ?? "", /member-private-id/);
+});

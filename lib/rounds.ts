@@ -19,7 +19,7 @@ export type ConflictReason = {
 
 const CHOICE_WEIGHT: Record<Choice, number> = { like: 2, okay: 0.5, no: -1.5 };
 
-type RoundMember = Pick<GroupMemberPreference, "id" | "choices" | "submittedAt"> & Partial<Pick<GroupMemberPreference, "originLocation" | "budgetLabel" | "commuteLabel" | "setting" | "extraction">>;
+type RoundMember = Pick<GroupMemberPreference, "id" | "choices" | "submittedAt"> & Partial<Pick<GroupMemberPreference, "name" | "originLocation" | "budgetLabel" | "commuteLabel" | "setting" | "extraction">>;
 
 export function canRequestPrivateDiscovery(candidateIds: string[], choices: Record<string, Choice>): boolean {
   return candidateIds.length === 12 && candidateIds.every((id) => choices[id] === "no");
@@ -131,7 +131,7 @@ export function diagnoseRoundConflict(candidates: Candidate[], members: RoundMem
   for (const member of readyMembers) {
     const rejected = allCandidates(candidates, (candidate) => member.choices[candidate.id] === "no");
     if (rejected.length === candidates.length) {
-      reasons.push({ type: "all_rejected", memberId: member.id, candidateIds: rejected, message: `${member.id} 拒绝了本轮全部候选` });
+      reasons.push({ type: "all_rejected", memberId: member.id, candidateIds: rejected, message: `${memberDisplayName(member)} 拒绝了本轮全部候选` });
       break;
     }
   }
@@ -142,21 +142,21 @@ export function diagnoseRoundConflict(candidates: Candidate[], members: RoundMem
       if (limit === null) return false;
       const travel = estimateTravelBetween(member.originLocation ?? null, candidate.location) ?? candidate.estimatedTravelMinutes;
       return travel !== null && travel > limit;
-    }, message: (member) => `${member.id} 的通勤上限排除了全部候选` },
+    }, message: (member) => `${memberDisplayName(member)} 的通勤上限排除了全部候选` },
     { type: "budget", matches: (candidate, member) => {
       const limits = [parseBudget(member.budgetLabel), numericConstraint(member, "max_budget")].filter((value): value is number => value !== null);
       if (!limits.length || candidate.priceValue === null) return false;
       return candidate.priceValue > Math.min(...limits);
-    }, message: (member) => `${member.id} 的预算上限排除了全部已知价格候选` },
+    }, message: (member) => `${memberDisplayName(member)} 的预算上限排除了全部已知价格候选` },
     { type: "duration", matches: (candidate, member) => {
       const start = Math.max(toMinutes(config.startTime), timeConstraint(member, "arrival_after") ?? 0);
       const end = Math.min(toMinutes(config.endTime), timeConstraint(member, "leave_before") ?? 24 * 60);
       return candidate.durationMinutes > Math.max(0, end - start);
-    }, message: (member) => `${member.id} 的可用时间短于全部候选建议时长` },
+    }, message: (member) => `${memberDisplayName(member)} 的可用时间短于全部候选建议时长` },
     { type: "no_spicy", matches: (candidate, member) => {
       const noSpicy = member.setting === "不吃辣" || hasConstraint(member, "no_spicy");
       return noSpicy && candidate.features.nonSpicyAvailable === false;
-    }, message: (member) => `${member.id} 的不吃辣约束排除了全部候选` },
+    }, message: (member) => `${memberDisplayName(member)} 的不吃辣约束排除了全部候选` },
   ];
 
   for (const check of reasonChecks) {
@@ -178,6 +178,10 @@ export function diagnoseRoundConflict(candidates: Candidate[], members: RoundMem
   }));
   if (unknownIds.length) reasons.push({ type: "unknown_hard_fact", candidateIds: unknownIds, message: "部分硬约束缺少可核验地点事实，无法确认全部候选" });
   return reasons;
+}
+
+function memberDisplayName(member: RoundMember) {
+  return member.name?.trim() || "一位成员";
 }
 
 function toMinutes(value: string): number {

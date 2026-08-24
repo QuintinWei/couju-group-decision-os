@@ -182,6 +182,24 @@ test("the UI keeps private rescue cards separate from the shared round", async (
   assert.match(roomsRoute, /toPublicRoom\(room\)/);
 });
 
+test("the room flow exposes round-aware recovery only after a shared round is complete", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /第 \{room\.currentRound\}\/3 轮/);
+  assert.match(page, /人请求换一批/);
+  assert.match(page, /根据全体反馈开启下一轮/);
+  assert.match(page, /没有交集，换一批继续选/);
+  assert.match(page, /已经完成三轮探索/);
+  assert.match(page, /确认开启下一轮/);
+  assert.match(page, /调整我的边界/);
+  assert.match(page, /返回房间讨论/);
+  assert.match(css, /\.round-status-card/);
+  assert.match(css, /\.conflict-panel/);
+});
+
 test("preference endpoint uses dynamic rule extraction when no DeepSeek key is configured", async () => {
   const response = await fetchFromApp("/api/preferences", {
     method: "POST",
