@@ -74,3 +74,4 @@ button:disabled{cursor:not-allowed;opacity:.55}
 @media(max-width:580px){.range-options{grid-template-columns:1fr 1fr}}
 .result-refresh-action{display:flex;align-items:center;justify-content:center;gap:10px;margin:18px auto 42px;padding:13px 22px;border:1px solid #d2d2d7;border-radius:980px;background:#fff;color:#1d1d1f;font-size:12px;font-weight:650;box-shadow:0 8px 28px rgba(0,0,0,.05);cursor:pointer}.result-refresh-action:hover{border-color:#0071e3;color:#0066cc}.result-refresh-action span{font-size:16px}
 .public-constraint>i{font-size:0}.public-constraint>i:after{content:"探索模式 · 全城分类型召回";font-size:9px}
+.preference-setup-layout,.details-only-layout{grid-template-columns:minmax(0,720px);justify-content:center}.details-only-layout .natural-card{min-height:330px}.details-only-layout textarea{min-height:140px}.preference-setup-layout+.confirm-preference,.details-only-layout+.confirm-preference{max-width:720px;margin-left:auto;margin-right:auto}

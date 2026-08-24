@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ACTIVITY_INTERESTS, DINING_INTERESTS, canRefreshCandidates, extractWithRules, getDemoCandidates, rankCandidates } from "../lib/couju.ts";
+import { ACTIVITY_INTERESTS, DINING_INTERESTS, PREFERENCE_FLOW, canRefreshCandidates, extractWithRules, getDemoCandidates, parseCommuteLimit, rankCandidates } from "../lib/couju.ts";
 
 const config = { kind: "dining", city: "上海", date: "2026-08-23", startTime: "18:00", endTime: "21:30", people: 4 };
 
@@ -51,4 +51,18 @@ test("candidate refresh is available only to the creator after a result exists",
   assert.equal(canRefreshCandidates(true, "results", false), false);
   assert.equal(canRefreshCandidates(true, "results", true), true);
   assert.equal(canRefreshCandidates(false, "results", true), false);
+});
+
+test("personal hard limits are collected before cards and optional details follow cards", () => {
+  assert.deepEqual(PREFERENCE_FLOW, ["setup", "swipe", "constraints"]);
+  assert.equal(parseCommuteLimit("≤ 1.5 小时"), 90);
+});
+
+test("the pre-card dining atmosphere changes recommendation order", () => {
+  const base = getDemoCandidates("上海", "dining")[0];
+  const lively = { ...base, id: "lively", name: "热闹餐厅", rating: null, features: { ...base.features, quiet: false, conversationFriendly: false } };
+  const quiet = { ...base, id: "quiet", name: "安静餐厅", rating: null, features: { ...base.features, quiet: true, conversationFriendly: true } };
+  const choices = { lively: "okay", quiet: "okay" };
+  const ranked = rankCandidates([lively, quiet], { config, choices, budgetLabel: "不限", commuteLabel: "不限", setting: "安静聊天", extraction: null });
+  assert.equal(ranked[0]?.id, "quiet");
 });

@@ -1,5 +1,6 @@
-export type Stage = "home" | "create" | "join" | "room" | "swipe" | "constraints" | "ranking" | "results" | "locked";
+export type Stage = "home" | "create" | "join" | "room" | "setup" | "swipe" | "constraints" | "ranking" | "results" | "locked";
 export type Choice = "no" | "okay" | "like";
+export const PREFERENCE_FLOW = ["setup", "swipe", "constraints"] as const;
 
 export function canRefreshCandidates(isCreator: boolean, stage: Stage, hasResult: boolean) {
   return isCreator && stage === "results" && hasResult;
@@ -331,7 +332,7 @@ export function rankGroupCandidates(
       if (excluded.has(candidate.id)) return [];
       const memberContexts = readyMembers.map((member) => {
         const budget = mergeNumericLimit(parseLimit(member.budgetLabel), constraintNumber(member.extraction, "max_budget"));
-        let commute = parseLimit(member.commuteLabel);
+        let commute = parseCommuteLimit(member.commuteLabel);
         if (vetoReason === "还是太远" && commute !== null) commute = Math.max(10, commute - 10);
         const memberStart = Math.max(toMinutes(config.startTime), constraintTime(member.extraction, "arrival_after") ?? 0);
         const memberEnd = Math.min(toMinutes(config.endTime), constraintTime(member.extraction, "leave_before") ?? 24 * 60);
@@ -404,6 +405,11 @@ function scoreUser(candidate: Candidate, context: RankContext, choice: Choice | 
   if (commute !== null && travel !== null) adjustments.push(clamp(1 - travel / Math.max(commute, 1) * 0.35, 0.4, 1));
   if (context.setting === "室内优先" && candidate.features.indoor !== null) adjustments.push(candidate.features.indoor ? 0.95 : 0.45);
   if (context.setting === "户外优先" && candidate.features.indoor !== null) adjustments.push(candidate.features.indoor ? 0.45 : 0.95);
+  if (context.setting === "安静聊天") {
+    if (candidate.features.quiet !== null) adjustments.push(candidate.features.quiet ? 0.98 : 0.42);
+    if (candidate.features.conversationFriendly !== null) adjustments.push(candidate.features.conversationFriendly ? 0.96 : 0.5);
+  }
+  if (context.setting === "热闹聚会" && candidate.features.quiet !== null) adjustments.push(candidate.features.quiet ? 0.58 : 0.94);
   if (context.setting === "不吃辣" && candidate.features.nonSpicyAvailable !== null) adjustments.push(candidate.features.nonSpicyAvailable ? 0.95 : 0.1);
   for (const preference of context.extraction?.softPreferences ?? []) adjustments.push(featureMatch(candidate, preference.feature));
   if (candidate.rating !== null) adjustments.push(clamp(candidate.rating / 5, 0.5, 1));
@@ -446,6 +452,14 @@ function parseLimit(label: string): number | null {
   if (/不限/.test(label)) return null;
   const match = label.match(/\d+/);
   return match ? Number(match[0]) : null;
+}
+
+export function parseCommuteLimit(label: string): number | null {
+  if (/不限/.test(label)) return null;
+  const match = label.match(/(\d+(?:\.\d+)?)\s*(小时|分钟)?/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return match[2] === "小时" ? Math.round(value * 60) : value;
 }
 
 function mergeNumericLimit(a: number | null, b: number | null): number | null {
