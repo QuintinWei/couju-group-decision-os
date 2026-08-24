@@ -20,6 +20,7 @@ export async function POST(request: Request) {
   const auth = parseMemberAuth(body);
   const expectedRound = parseRound(body.expectedRound);
   if (!action || !auth || expectedRound === null) return error("成员身份或轮次无效", 400);
+  if (action === "request" && body.requested !== undefined && typeof body.requested !== "boolean") return error("换一批请求必须是布尔值", 400);
 
   try {
     if (action === "request") return handleRequest(auth, expectedRound, body);
@@ -75,6 +76,13 @@ async function handlePrivateDiscovery(request: Request, auth: MemberAuth, expect
     unseen: unseenTypes,
     setting: member.setting,
     interests,
+    location: member.originLocation,
+    budget: member.budgetLabel,
+    commute: member.commuteLabel,
+    note: member.note,
+    date: room.config.date,
+    startTime: room.config.startTime,
+    endTime: room.config.endTime,
     seed: `private:${room.code}:${member.id}:${room.currentRound}`,
   });
   if (generated.candidates.length !== 3 || !hasUniqueProviderIds(generated.candidates)) return error("私人发现未能生成三张不同候选，请稍后再试", 422);
@@ -89,6 +97,7 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
   const { advanceStoredRound, getAuthenticatedStoredRoom } = await loadRoomStore();
   const room = await getAuthenticatedStoredRoom(auth);
   if (!room) return error("成员身份已失效，请重新加入", 403);
+  if (room.members[0]?.id !== auth.memberId) return error("只有房主可以发起下一轮", 403);
   if (room.currentRound !== expectedRound) return error("房间已进入下一轮，请刷新后继续", 409);
   if (room.currentRound >= 3) return error("已经是第三轮，无法继续换一批", 429);
   if (room.members.length === 0 || room.members.some((member) => !member.submittedAt)) {
@@ -101,13 +110,15 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
   const feedback = aggregateRoundFeedback(room.candidates, room.members);
   const nominations = validNominations(room.members);
   const excludedIds = new Set<string>([
+    ...room.candidates.map((candidate) => candidate.source.providerId || candidate.id),
+    ...room.roundHistory.flatMap((entry) => entry.candidateIds),
     ...feedback.rejectedCandidateIds,
     ...room.roundHistory.flatMap((entry) => entry.feedback.rejectedCandidateIds),
   ]);
-  const learnedCategories = [...feedback.categoryScores.entries()]
-    .filter(([, score]) => score > 0)
-    .sort((left, right) => right[1] - left[1])
-    .map(([category]) => category)
+  const learnedInterests = [...new Set(room.candidates
+    .filter((candidate) => (feedback.categoryScores.get(candidate.type) ?? 0) > 0)
+    .map((candidate) => candidate.matchedInterest || candidate.type)
+    .filter((category) => DEFAULT_INTERESTS[room.config.kind].includes(category as never)))]
     .slice(0, 6);
   const nominationIds = nominations.map((candidate) => candidate.source.providerId || candidate.id);
   const sharedExclude = [...new Set([...excludedIds, ...nominationIds])];
@@ -125,7 +136,7 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
     kind: room.config.kind,
     strategy: "learn",
     exclude: [...sharedExclude, ...reservedExploration.map((candidate) => candidate.source.providerId || candidate.id)],
-    interests: learnedCategories,
+    interests: learnedInterests,
     seed: `learn:${room.code}:${room.currentRound}`,
   });
 
@@ -142,7 +153,7 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
     ...learned.meta,
     label: `${learned.meta.mode === "demo" ? "根据全体反馈 · 演示" : "根据全体反馈"}`,
     strategy: "learn",
-    keywords: learnedCategories,
+    keywords: learnedInterests,
   };
   const result = await advanceStoredRound({ ...auth, expectedRound, candidates, meta, reason: refreshReason(room) });
   return mutationResponse(result);
@@ -159,6 +170,13 @@ type CandidateRequest = {
   unseen?: Iterable<string>;
   interests?: string[];
   setting?: string;
+  location?: { lng: number; lat: number } | null;
+  budget?: string;
+  commute?: string;
+  note?: string;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
   seed: string;
 };
 
@@ -175,6 +193,13 @@ async function fetchCandidateBatch(request: Request, input: CandidateRequest): P
   if (unseen.length) url.searchParams.set("unseen", unseen.join(","));
   if (input.interests?.length) url.searchParams.set("interests", input.interests.join(","));
   if (input.setting) url.searchParams.set("setting", input.setting);
+  if (input.location) url.searchParams.set("location", `${input.location.lng},${input.location.lat}`);
+  if (input.budget) url.searchParams.set("budget", input.budget);
+  if (input.commute) url.searchParams.set("commute", input.commute);
+  if (input.note) url.searchParams.set("note", input.note);
+  if (input.date) url.searchParams.set("date", input.date);
+  if (input.startTime) url.searchParams.set("startTime", input.startTime);
+  if (input.endTime) url.searchParams.set("endTime", input.endTime);
 
   const response = await getCandidates(new Request(url));
   if (!response.ok) throw new CandidateGenerationError(`候选生成失败（${response.status}）`);
@@ -189,6 +214,7 @@ function collectExcludedIds(room: StoredRoom, member: StoredMember) {
   return new Set([
     ...room.candidates.map((candidate) => candidate.source.providerId || candidate.id),
     ...room.roundHistory.flatMap((entry) => entry.candidateIds),
+    ...room.roundHistory.flatMap((entry) => entry.privateRejectedCandidateIds ?? []),
     ...member.privateCandidates.map((candidate) => candidate.source.providerId || candidate.id),
     ...Object.entries(member.choices).filter(([, choice]) => choice === "no").map(([id]) => id),
   ]);
@@ -238,7 +264,8 @@ function parseMemberAuth(body: RoundBody): MemberAuth | null {
 }
 
 function parseRound(value: unknown) {
-  const round = Number(value);
+  if (typeof value !== "number") return null;
+  const round = value;
   return Number.isInteger(round) && round >= 1 && round <= 3 ? round : null;
 }
 

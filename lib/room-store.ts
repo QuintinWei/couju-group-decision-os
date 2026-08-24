@@ -13,7 +13,7 @@ export type CandidateMeta = {
   center?: { lng: number; lat: number } | null;
   seed?: string;
   focused?: boolean;
-  strategy?: "explore" | "focused" | "learn";
+  strategy?: "explore" | "focused" | "learn" | "private";
   commuteWindow?: string;
 };
 
@@ -39,6 +39,7 @@ export type RoundHistoryEntry = {
   candidateIds: string[];
   categories: string[];
   feedback: SerializedRoundFeedback;
+  privateRejectedCandidateIds?: string[];
   reason: string;
   startedAt: string;
   endedAt: string;
@@ -117,6 +118,7 @@ export async function createStoredRoom(input: {
   creatorOrigin: string;
   creatorOriginLocation: { lng: number; lat: number } | null;
 }) {
+  if (input.candidates.length !== 12 || !hasUniqueProviderIds(input.candidates)) throw new Error("INVALID_CANDIDATES");
   const db = getD1();
   const code = await createUniqueCode();
   const memberId = crypto.randomUUID();
@@ -300,6 +302,7 @@ export async function advanceStoredRound(input: MemberAuth & { expectedRound: nu
     candidateIds: currentCandidates.map((candidate) => candidate.id),
     categories: [...new Set(currentCandidates.map((candidate) => candidate.type))],
     feedback,
+    privateRejectedCandidateIds: await readPrivateRejectedCandidateIds(input.roomCode),
     reason: input.reason,
     startedAt: history.at(-1)?.endedAt ?? room.created_at,
     endedAt: now,
@@ -309,8 +312,8 @@ export async function advanceStoredRound(input: MemberAuth & { expectedRound: nu
   const historyJson = JSON.stringify(nextHistory);
 
   const results = await db.batch([
-    db.prepare("UPDATE rooms SET candidates_json = ?, candidate_meta_json = ?, current_round = ?, round_history_json = ?, updated_at = ? WHERE code = ? AND current_round = ? AND updated_at = ?")
-      .bind(candidatesJson, metaJson, nextRound, historyJson, now, input.roomCode, input.expectedRound, room.updated_at),
+    db.prepare("UPDATE rooms SET candidates_json = ?, candidate_meta_json = ?, current_round = ?, round_history_json = ?, updated_at = ? WHERE code = ? AND current_round = ? AND updated_at = ? AND (SELECT COUNT(*) FROM members WHERE room_code = ?) = (SELECT COUNT(*) FROM members WHERE room_code = ? AND submitted_at IS NOT NULL)")
+      .bind(candidatesJson, metaJson, nextRound, historyJson, now, input.roomCode, input.expectedRound, room.updated_at, input.roomCode, input.roomCode),
     db.prepare("UPDATE members SET choices_json = NULL, submitted_at = NULL, refresh_request_round = NULL, private_candidates_json = NULL, nominated_candidate_json = NULL, updated_at = ? WHERE room_code = ? AND EXISTS (SELECT 1 FROM rooms WHERE code = ? AND current_round = ? AND round_history_json = ? AND updated_at = ?)")
       .bind(now, input.roomCode, input.roomCode, nextRound, historyJson, now),
   ]);
@@ -350,6 +353,17 @@ async function readRoundMembers(roomCode: string) {
     choices: safeJson<Record<string, Choice>>(member.choices_json, {}),
     submittedAt: member.submitted_at,
   }));
+}
+
+async function readPrivateRejectedCandidateIds(roomCode: string) {
+  const rows = await getD1().prepare("SELECT private_candidates_json, nominated_candidate_json FROM members WHERE room_code = ?")
+    .bind(roomCode).all<Pick<MemberRow, "private_candidates_json" | "nominated_candidate_json">>();
+  return [...new Set(rows.results.flatMap((member) => {
+    const nominated = safeJson<Candidate | null>(member.nominated_candidate_json, null);
+    return safeJson<Candidate[]>(member.private_candidates_json, [])
+      .filter((candidate) => candidate.id !== nominated?.id)
+      .map((candidate) => candidate.source.providerId || candidate.id);
+  }))];
 }
 
 function serializeRoundFeedback(feedback: RoundFeedback): SerializedRoundFeedback {
