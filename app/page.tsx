@@ -6,6 +6,7 @@ import {
   ACTIVITY_INTERESTS,
   DINING_INTERESTS,
   SUPPORTED_CITIES,
+  canRefreshCandidates,
   getDemoCandidates,
   rankGroupCandidates as rankCandidates,
   type Candidate,
@@ -18,6 +19,7 @@ import {
   type RoomConfig,
   type Stage,
 } from "../lib/couju";
+import { requestBrowserPosition } from "../lib/browser-location";
 import type { StoredMember, StoredRoom } from "../lib/room-store";
 
 type CandidateMeta = { mode: DataMode; label: string; fetchedAt: string; disclaimer?: string; keywords?: string[]; avoid?: string[]; page?: number; center?: GeoPoint | null; seed?: string; focused?: boolean; strategy?: "explore" | "focused" | "learn"; commuteWindow?: DiscoveryRange };
@@ -187,7 +189,7 @@ export default function Home() {
   const useCurrentLocation = () => {
     if (!navigator.geolocation) { setLocationStatus("当前浏览器不支持系统定位，请输入地铁站或商圈"); return; }
     setLocating(true); setLocationStatus("正在请求系统定位…");
-    navigator.geolocation.getCurrentPosition(async (position) => {
+    requestBrowserPosition(navigator.geolocation.getCurrentPosition.bind(navigator.geolocation)).then(async (position) => {
       try {
         const response = await fetch("/api/location", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ city: config.city, lat: position.coords.latitude, lng: position.coords.longitude }) });
         const payload = await response.json() as LocationResponse;
@@ -204,11 +206,9 @@ export default function Home() {
           setLocationStatus("已定位 · 暂未识别到支持城市，仍使用当前城市和当前位置坐标");
         }
       } catch (error) { setLocationStatus(error instanceof Error ? error.message : "定位服务暂时不可用，请手动输入地铁站或商圈"); }
-      finally { setLocating(false); }
-    }, (error) => {
-      setLocating(false);
-      setLocationStatus(browserLocationError(error));
-    }, { enableHighAccuracy: false, timeout: 20000, maximumAge: 600000 });
+    }).catch((error) => {
+      setLocationStatus(browserLocationError(error as GeolocationPositionError));
+    }).finally(() => setLocating(false));
   };
 
   const loadCandidates = async (input: { location: GeoPoint; strategy: "explore" | "focused" | "learn"; commuteWindow: DiscoveryRange; interests?: string[]; avoid?: string[]; exclude?: string[]; page?: number }) => {
@@ -386,21 +386,21 @@ function JoinScreen({ room, loading, error, onJoin }: { room: StoredRoom; loadin
   const locate = () => {
     if (!navigator.geolocation) return setLocationMessage("当前浏览器不支持定位，请手动输入");
     setLocating(true); setLocationMessage("正在定位…");
-    navigator.geolocation.getCurrentPosition(async (position) => {
+    requestBrowserPosition(navigator.geolocation.getCurrentPosition.bind(navigator.geolocation)).then(async (position) => {
       try {
         const response = await fetch("/api/location", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ city: room.config.city, lat: position.coords.latitude, lng: position.coords.longitude }) });
         const payload = await response.json() as LocationResponse;
         if (!response.ok || !payload.location) throw new Error(payload.error || "定位服务暂时不可用");
         setOrigin(payload.label || "当前位置附近"); setOriginLocation(payload.location); setLocationMessage("已定位 · 会参与你的通勤计算");
       } catch (cause) { setLocationMessage(cause instanceof Error ? cause.message : "定位服务暂时不可用，请手动输入"); }
-      finally { setLocating(false); }
-    }, (error) => { setLocating(false); setLocationMessage(browserLocationError(error)); }, { enableHighAccuracy: false, timeout: 20000, maximumAge: 600000 });
+    }).catch((error) => { setLocationMessage(browserLocationError(error as GeolocationPositionError)); }).finally(() => setLocating(false));
   };
   return <section className="flow-page create-page join-page"><ScreenTitle eyebrow={`ROOM ${room.code}`} title={`加入“${roomTitle(room.config.kind)}”`} detail={`${room.config.city} · ${formatDate(room.config.date)} · 已有 ${room.members.length}/${room.config.people} 人加入`} /><div className="join-card"><div className="join-summary"><span>{room.config.kind === "dining" ? "♨" : "✦"}</span><div><b>{room.config.startTime}–{room.config.endTime}</b><small>{room.config.city} · {room.candidates.length} 个候选</small></div></div><label><span>你的昵称</span><input className="form-control" value={name} maxLength={18} onChange={(event) => setName(event.target.value)} placeholder="朋友会看到这个名字" /></label><label><span>从哪里出发</span><div className="location-input-row"><input className="form-control" value={origin} maxLength={40} onChange={(event) => { setOrigin(event.target.value); setOriginLocation(null); setLocationMessage("提交时会识别这个地铁站或商圈"); }} placeholder="不用填写精确住址" /><button type="button" onClick={locate} disabled={locating}>{locating ? "定位中" : "⌖ 定位"}</button></div><small className={originLocation ? "location-ok" : ""}>{locationMessage}</small></label>{error && <p className="form-error">{error}</p>}<button className="full-dark-button" disabled={loading || !name.trim() || !origin.trim()} onClick={() => onJoin(name, origin, originLocation)}>{loading ? "正在加入…" : "加入房间"} <span>→</span></button><p className="privacy-note">系统定位只在你点击并授权后使用；手输地铁站或商圈也会参与通勤计算。</p></div></section>;
 }
 
-function RoomScreen({ room, currentMember, syncing, isCreator, refreshing, error, onRefresh, onShare, onPreference, onRank }: { room: StoredRoom; currentMember: StoredMember | null; syncing: boolean; isCreator: boolean; refreshing: boolean; error: string; onRefresh: () => void; onShare: () => void; onPreference: () => void; onRank: () => void }) {
+function RoomScreen({ room, currentMember, syncing, isCreator: creator, refreshing, error, onRefresh, onShare, onPreference, onRank }: { room: StoredRoom; currentMember: StoredMember | null; syncing: boolean; isCreator: boolean; refreshing: boolean; error: string; onRefresh: () => void; onShare: () => void; onPreference: () => void; onRank: () => void }) {
   const { config, meta } = room; const doneCount = room.members.filter((member) => member.submittedAt).length; const enough = doneCount >= 2;
+  const isCreator = canRefreshCandidates(creator, Object.keys(currentMember?.choices ?? {}).length);
   return <section className="flow-page room-page"><div className="room-kicker"><span>{config.city} · {config.kind === "dining" ? "聚餐" : "活动"}</span><b>房间 {room.code}</b></div><ScreenTitle eyebrow={`${config.kind === "dining" ? "DINNER" : "WEEKEND"} IN ${config.city.toUpperCase()}`} title={roomTitle(config.kind)} detail={`${formatDate(config.date)} · ${config.startTime}–${config.endTime} · ${config.city}`} /><div className="data-audit-strip"><span className={`source-dot ${meta.mode}`} /><b>{room.candidates.length} 个候选 · {meta.label}</b><span>{room.members.length}/{config.people} 人已加入</span><span>{syncing ? "同步中" : "每 4 秒同步"}</span></div><div className="room-grid"><div className="room-main-card"><div className="room-card-head"><div><span>真实成员</span><strong>{doneCount}/{room.members.length} 已提交</strong></div><i>{enough ? "可以计算真实交集" : "至少 2 人提交后可计算"}</i></div><div className="member-list">{room.members.map((member) => <div key={member.id} className={member.submittedAt ? "member done" : "member pending"}><div className="avatar">{member.name.slice(0, 1).toUpperCase()}{member.submittedAt && <span>✓</span>}</div><div><b>{member.name}{member.id === currentMember?.id ? " · 你" : ""}</b><small>{member.origin} · {member.submittedAt ? "偏好已提交" : "等待提交"}</small></div><em>{member.submittedAt ? "完成" : "待完成"}</em></div>)}</div>{!currentMember?.submittedAt ? <button className="full-dark-button pulse" onClick={onPreference}>开始划这批候选 <span>→</span></button> : <div className="room-actions"><button className="quiet-button" onClick={onPreference}>修改我的偏好</button><button className="full-dark-button lime-button" onClick={onRank} disabled={!enough}>计算真实交集 <span>✦</span></button></div>}<p className="privacy-note">⌾ 位置用于候选范围和通勤估算；每个人的通勤上限仍会作为最终硬筛选。</p></div><aside className="invite-card"><span className="big-source-mark live">{room.code}</span><h3>把链接发给朋友</h3><p>对方不需要注册，填写昵称和大致出发地后就能独立选择。</p><button onClick={onShare}>复制房间链接 <span>↗</span></button>{isCreator && <button className="refresh-button" onClick={onRefresh} disabled={refreshing}>{refreshing ? "正在发现新候选…" : "这批没感觉，换一批"} <span>↻</span></button>}<small>{room.members.length < config.people ? `还可加入 ${config.people - room.members.length} 人` : "房间人数已满"}</small>{error && <p className="form-error">{error}</p>}</aside></div><div className="public-constraint"><b>本轮配置</b><span>{formatDate(config.date)} {config.startTime}–{config.endTime}</span><span>{config.city}市</span><span>{meta.commuteWindow || "全城探索"}</span><span>目标 {config.people} 人</span><i>{meta.focused ? `按想法：${meta.keywords?.join("、")}` : "探索模式 · 按通勤范围召回"}</i></div></section>;
 }
 

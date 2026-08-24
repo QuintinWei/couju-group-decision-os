@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ACTIVITY_INTERESTS, DINING_INTERESTS, extractWithRules, getDemoCandidates, rankCandidates } from "../lib/couju.ts";
+import { ACTIVITY_INTERESTS, DINING_INTERESTS, canRefreshCandidates, extractWithRules, getDemoCandidates, rankCandidates } from "../lib/couju.ts";
 
 const config = { kind: "dining", city: "上海", date: "2026-08-23", startTime: "18:00", endTime: "21:30", people: 4 };
 
@@ -42,4 +42,12 @@ test("veto exclusion removes the current winner and recalculates", () => {
   assert.ok(first[0]);
   const second = rankCandidates(candidates, { config, choices, budgetLabel: "≤ ¥200", commuteLabel: "≤ 45 分钟", setting: "微辣可以", extraction: null, excludedIds: [first[0].id], vetoReason: "太辣了" });
   assert.notEqual(second[0]?.id, first[0].id);
+});
+
+test("room refresh stays hidden until the creator has rated three candidates", () => {
+  assert.equal(typeof canRefreshCandidates, "function");
+  assert.equal(canRefreshCandidates(true, 0), false);
+  assert.equal(canRefreshCandidates(true, 2), false);
+  assert.equal(canRefreshCandidates(true, 3), true);
+  assert.equal(canRefreshCandidates(false, 12), false);
 });

@@ -117,7 +117,7 @@ test("the UI exposes consent-based location, city sync, and feedback-driven refr
   assert.doesNotMatch(page, /随机，但不是乱推/);
   assert.match(page, /全城探索/);
   assert.match(page, /候选范围/);
-  assert.match(page, /timeout: 20000/);
+  assert.match(page, /requestBrowserPosition/);
   assert.match(page, /这批没感觉/);
   assert.match(page, /strategy: "learn"/);
 });

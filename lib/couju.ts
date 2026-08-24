@@ -1,5 +1,10 @@
 export type Stage = "home" | "create" | "join" | "room" | "swipe" | "constraints" | "ranking" | "results" | "locked";
 export type Choice = "no" | "okay" | "like";
+
+export function canRefreshCandidates(isCreator: boolean, completedChoices: number) {
+  return isCreator && completedChoices >= 3;
+}
+
 export type DecisionKind = "activity" | "dining";
 export type DataMode = "live" | "demo";
 export type ExtractionMode = "deepseek" | "rules";
