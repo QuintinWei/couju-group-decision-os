@@ -88,6 +88,8 @@ export default function Home() {
   const [roomError, setRoomError] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [aiExplanation, setAiExplanation] = useState<AiExplanation | null>(null);
+  const [lockedResult, setLockedResult] = useState<RankedCandidate | null>(null);
+  const [vetoTarget, setVetoTarget] = useState<RankedCandidate | null>(null);
   const [cardIndex, setCardIndex] = useState(0);
   const [swipes, setSwipes] = useState<Record<string, Choice>>({});
   const [budget, setBudget] = useState("≤ ¥150");
@@ -162,7 +164,7 @@ export default function Home() {
     window.history.replaceState({}, "", window.location.pathname);
     setCandidateMeta({ mode: "demo", label: "凑局演示候选库", fetchedAt: "2026-08-21T00:00:00.000Z", disclaimer: "当前为演示候选，不代表实时商户、价格或可订状态。" });
     setCardIndex(0); setSwipes({}); setBudget("≤ ¥150"); setCommute("≤ 60 分钟"); setSetting("都可以");
-    setNote(""); setExtraction(null); setExcludedIds([]); setAppliedVetoReason("");
+    setNote(""); setExtraction(null); setExcludedIds([]); setAppliedVetoReason(""); setLockedResult(null); setVetoTarget(null);
     setCreatorLocation(null); setLocationStatus("输入后会识别地铁站或商圈，并用于通勤估算"); setIdeaMode(false); setSelectedInterests([]); setAvoid("");
   };
 
@@ -312,8 +314,9 @@ export default function Home() {
     finally { setSyncing(false); }
   };
   const applyVeto = () => {
-    if (mainResult) setExcludedIds((old) => [...new Set([...old, mainResult.id])]);
-    setAppliedVetoReason(vetoReason); setVetoOpen(false); setToast(`“${vetoReason}”已加入本轮重排`); startRanking();
+    const target = vetoTarget || mainResult;
+    if (target) setExcludedIds((old) => [...new Set([...old, target.id])]);
+    setAppliedVetoReason(vetoReason); setVetoOpen(false); setVetoTarget(null); setToast(`“${vetoReason}”已加入本轮重排`); startRanking();
   };
 
   const copyShare = async () => {
@@ -322,10 +325,11 @@ export default function Home() {
   };
 
   const addCalendar = () => {
-    if (!mainResult) return;
+    const calendarResult = lockedResult || mainResult;
+    if (!calendarResult) return;
     const compactDate = config.date.replaceAll("-", ""); const start = config.startTime.replace(":", ""); const end = config.endTime.replace(":", "");
-    const location = mainResult.source.mode === "live" ? `${config.city}市${mainResult.address}` : `${config.city} · 地点需确认`;
-    const ics = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Couju//Group Decision OS//CN\nBEGIN:VEVENT\nUID:${Date.now()}@couju.demo\nDTSTAMP:${compactDate}T000000Z\nDTSTART:${compactDate}T${start}00\nDTEND:${compactDate}T${end}00\nSUMMARY:凑局｜${mainResult.name}\nLOCATION:${location}\nDESCRIPTION:数据来源：${mainResult.source.label}；到店前请确认价格、营业与可订状态。\nEND:VEVENT\nEND:VCALENDAR`;
+    const location = calendarResult.source.mode === "live" ? `${config.city}市${calendarResult.address}` : `${config.city} · 地点需确认`;
+    const ics = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Couju//Group Decision OS//CN\nBEGIN:VEVENT\nUID:${Date.now()}@couju.demo\nDTSTAMP:${compactDate}T000000Z\nDTSTART:${compactDate}T${start}00\nDTEND:${compactDate}T${end}00\nSUMMARY:凑局｜${calendarResult.name}\nLOCATION:${location}\nDESCRIPTION:数据来源：${calendarResult.source.label}；到店前请确认价格、营业与可订状态。\nEND:VEVENT\nEND:VCALENDAR`;
     const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
     const link = document.createElement("a"); link.href = url; link.download = `凑局-${config.date}.ics`; link.click(); URL.revokeObjectURL(url); setToast("日历文件已生成");
   };
@@ -343,9 +347,9 @@ export default function Home() {
     {stage === "swipe" && <SwipeScreen config={config} cards={candidates} index={cardIndex} choices={swipes} travelMinutes={estimateTravelBetween(currentMember?.originLocation ?? null, candidates[cardIndex]?.location ?? null) ?? candidates[cardIndex]?.estimatedTravelMinutes ?? null} canRefresh={canRefreshCandidates(room?.members[0]?.id === identity?.id, stage, ranked.length > 0)} refreshing={candidateRefreshing} onRefresh={refreshCandidates} onChoose={chooseCard} onBack={() => setStage("setup")} onPointerDown={(x) => { pointerStart.current = x; }} onPointerUp={(x) => { if (pointerStart.current === null) return; const delta = x - pointerStart.current; if (delta > 65) chooseCard("like"); else if (delta < -65) chooseCard("no"); pointerStart.current = null; }} />}
     {stage === "constraints" && <PreferenceDetailsScreen config={config} note={note} extraction={extraction} loading={parseLoading} submitting={syncing} error={parseError} setNote={(value) => { setNote(value); setExtraction(null); }} onParse={parsePreference} onRemoveSignal={removeSignal} onBack={() => setStage("swipe")} onConfirm={confirmConstraints} />}
     {stage === "ranking" && <RankingScreen config={config} step={rankingStep} candidates={candidates} ranked={ranked} meta={candidateMeta} />}
-    {stage === "results" && <ResultsScreen config={config} ranked={ranked} meta={candidateMeta} members={readyMembers} aiExplanation={aiExplanation} onVeto={() => setVetoOpen(true)} onLock={() => setStage("locked")} onAdjust={() => setStage("setup")} />}
+    {stage === "results" && <ResultsScreen config={config} ranked={ranked} meta={candidateMeta} members={readyMembers} aiExplanation={aiExplanation} onVeto={(selected) => { setVetoTarget(selected); setVetoOpen(true); }} onLock={(selected) => { setLockedResult(selected); setStage("locked"); }} onAdjust={() => setStage("setup")} />}
     {canRefreshCandidates(room?.members[0]?.id === identity?.id, stage, ranked.length > 0) && <button className="result-refresh-action" onClick={refreshCandidates} disabled={candidateRefreshing}>{candidateRefreshing ? "正在准备新一轮…" : "结果不满意，换一批重新决策"} <span>↻</span></button>}
-    {stage === "locked" && mainResult && <LockedScreen config={config} result={mainResult} onCalendar={addCalendar} onReset={resetSession} onShare={copyShare} />}
+    {stage === "locked" && (lockedResult || mainResult) && <LockedScreen config={config} result={(lockedResult || mainResult)!} onCalendar={addCalendar} onReset={resetSession} onShare={copyShare} />}
     {vetoOpen && <div className="modal-backdrop"><button className="modal-dismiss-layer" onClick={() => setVetoOpen(false)} aria-label="关闭否决弹窗" /><section className="veto-modal" role="dialog" aria-modal="true" aria-labelledby="veto-title"><button className="modal-close" onClick={() => setVetoOpen(false)} aria-label="关闭">×</button><span className="modal-icon">!</span><h2 id="veto-title">什么让你无法接受？</h2><p>当前方案会被排除，所选原因会进入下一轮确定性重排。</p><div className="reason-grid">{vetoReasons.map((reason) => <button key={reason} className={vetoReason === reason ? "selected" : ""} onClick={() => setVetoReason(reason)}>{reason}</button>)}</div><button className="full-dark-button" onClick={applyVeto}>加入本轮约束并重排 <span>→</span></button></section></div>}
     {toast && <div className="toast" role="status"><span>✓</span>{toast}</div>}
   </main>;
@@ -429,13 +433,26 @@ function RankingScreen({ config, step, candidates, ranked, meta }: { config: Roo
   return <section className="flow-page ranking-page"><div className="ranking-orbit"><span className="pulse-core">凑</span><i className="orbit-one" /><i className="orbit-two" /></div><div className="ranking-copy"><span>FAIR GROUP DECISION ENGINE</span><h1>正在计算大家的真实交集</h1><p>先保护每个人的底线，再从 Pareto 前沿中寻找 Nash 群体福利最高的方案。</p></div><div className="ranking-funnel">{rows.map((row, index) => <div key={row.title} className={step > index ? "done" : step === index ? "active" : ""}><span>{step > index ? "✓" : index + 1}</span><strong>{step > index || step === index ? row.n : "—"}</strong><section><b>{row.title}</b><small>{row.detail}</small></section><em>{step > index ? "完成" : step === index ? "计算中" : "等待"}</em></div>)}</div><div className="ranking-privacy">⌾ 本轮只包含 {memberCount} 位已提交成员，没有虚拟样本</div></section>;
 }
 
-function ResultsScreen({ config, ranked, meta, members, aiExplanation, onVeto, onLock, onAdjust }: { config: RoomConfig; ranked: RankedCandidate[]; meta: CandidateMeta; members: StoredMember[]; aiExplanation: AiExplanation | null; onVeto: () => void; onLock: () => void; onAdjust: () => void }) {
+function ResultsScreen({ config, ranked, meta, members, aiExplanation, onVeto, onLock, onAdjust }: { config: RoomConfig; ranked: RankedCandidate[]; meta: CandidateMeta; members: StoredMember[]; aiExplanation: AiExplanation | null; onVeto: (selected: RankedCandidate) => void; onLock: (selected: RankedCandidate) => void; onAdjust: () => void }) {
+  const [selectedStrategy, setSelectedStrategy] = useState(0);
   const main = ranked[0];
   if (!main) return <section className="flow-page results-page no-solution"><span className="no-solution-icon">∅</span><h1>这次没有候选满足全部条件</h1><p>系统没有强行生成 Top 1。请放宽预算、通勤或时间，或者把一张“不想去”改为“还行”。</p><button className="full-dark-button" onClick={onAdjust}>返回调整底线 <span>→</span></button></section>;
   const fair = [...ranked].sort((a, b) => b.minUtility - a.minUtility || b.geoMean - a.geoMean)[0];
   const easy = [...ranked].sort((a, b) => (a.meanTravelMinutes ?? 999) - (b.meanTravelMinutes ?? 999) || (a.priceValue ?? 9999) - (b.priceValue ?? 9999))[0];
-  const strategies = [{ label: "最佳平衡", item: main, note: "Nash 群体福利最高" }, { label: "最公平", item: fair, note: "最低成员满意度最高" }, { label: "最省事", item: easy, note: "通勤估算与价格负担更低" }];
-  return <section className="flow-page results-page"><div className="result-heading"><div><span>✓ {members.length} 位真实成员参与计算</span><h1>不是一个答案，是三种取舍</h1><p>{ranked.length} 个候选通过共同底线；推荐来自同一组真实输入。</p></div><div className={`verified-badge ${meta.mode}`}><i>{meta.mode === "live" ? "高" : "D"}</i><span>{meta.label}<small>{formatSourceTime(meta.fetchedAt)}</small></span></div></div><div className="strategy-tabs">{strategies.map(({ label, item, note }) => <article key={label} className={item.id === main.id && label === "最佳平衡" ? "selected" : ""}><span>{label}</span><b>{item.name}</b><small>{note}</small><strong>{label === "最公平" ? item.minUtility : item.groupFit}</strong></article>)}</div><div className="result-layout"><article className="winner-card"><div className="winner-art photo-winner"><img src={main.image} alt={main.name} referrerPolicy="no-referrer" /><div className="image-shade" /><div className="rank-ribbon">BEST BALANCE · PARETO</div><span>{config.city} · {main.district}</span></div><div className="winner-body"><div className="winner-title"><div><span>最佳平衡方案</span><h2>{main.name}</h2><small className="source-inline">来源：{main.source.label}</small></div><div className="group-score"><strong>{main.groupFit}</strong><span>GROUP FIT<small>真实成员排序分</small></span></div></div><div className="facts-row"><span><i>◷</i><b>{main.durationLabel}</b><small>{formatDate(config.date)} · {config.startTime}</small></span><span><i>¥</i><b>{main.priceLabel}</b><small>{main.priceValue === null ? "价格未参与硬过滤" : "已进入预算过滤"}</small></span><span><i>⌖</i><b>{main.meanTravelMinutes ? `人均估算 ${main.meanTravelMinutes} 分钟` : "距离未参与"}</b><small>从各成员出发区域计算</small></span></div><div className="score-breakdown"><span>最低满意度 <b>{main.minUtility}</b></span><span>群体均值 <b>{main.meanUtility}</b></span><span>Nash 福利 <b>{main.geoMean}</b></span><span>Pareto <b>{main.onParetoFrontier ? "是" : "否"}</b></span></div><div className="why-box"><span>{aiExplanation ? `DeepSeek：${aiExplanation.headline}` : "为什么是它？"}</span><p>{aiExplanation ? `${aiExplanation.reasoning} ${aiExplanation.tradeoff}` : main.explanation}</p></div></div></article><aside className="response-panel"><div className="response-head"><span>成员满意度</span><b>{members.length} 人</b></div><div className="utility-list">{main.memberUtilities.map((item) => <div key={item.memberId}><span>{item.name.slice(0, 1)}</span><p><b>{item.name}</b><small>{members.find((member) => member.id === item.memberId)?.origin}{item.travelMinutes ? ` · 约 ${item.travelMinutes} 分钟` : ""}</small></p><strong>{item.utility}</strong></div>)}</div><p>最低满意度低于 60 时，系统会优先修复最不满意成员，而不是只追求平均分。</p><button className="accept-button" onClick={onLock}>锁定最佳平衡方案</button><button className="veto-button" onClick={onVeto}>否决并重新计算</button></aside></div></section>;
+  const strategies = [
+    { label: "最佳平衡", item: main, note: "Nash 群体福利最高", ribbon: "BEST BALANCE · PARETO" },
+    { label: "最公平", item: fair, note: "最低成员满意度最高", ribbon: "FAIREST · MAX-MIN" },
+    { label: "最省事", item: easy, note: "通勤估算与价格负担更低", ribbon: "EASIEST · LOW FRICTION" },
+  ];
+  const activeStrategy = strategies[selectedStrategy] || strategies[0];
+  const selected = activeStrategy.item;
+  const sameResult = new Set(strategies.map((strategy) => strategy.item.id)).size === 1;
+  return <section className="flow-page results-page">
+    <div className="result-heading"><div><span>✓ {members.length} 位真实成员参与计算</span><h1>{sameResult ? "三种取舍，这次指向同一个答案" : "不是一个答案，是三种取舍"}</h1><p>{ranked.length} 个候选通过共同底线；点击策略卡查看对应方案。</p></div><div className={`verified-badge ${meta.mode}`}><i>{meta.mode === "live" ? "高" : "D"}</i><span>{meta.label}<small>{formatSourceTime(meta.fetchedAt)}</small></span></div></div>
+    {sameResult && <p className="same-strategy-note">✓ 本轮三种策略得出同一方案，说明它同时兼顾平衡、公平与便利。</p>}
+    <div className="strategy-tabs">{strategies.map(({ label, item, note }, index) => <button type="button" key={label} className={selectedStrategy === index ? "selected" : ""} onClick={() => setSelectedStrategy(index)} aria-pressed={selectedStrategy === index}><span>{label}</span><b>{item.name}</b><small>{note}</small><strong>{label === "最公平" ? item.minUtility : item.groupFit}</strong></button>)}</div>
+    <div className="result-layout"><article className="winner-card"><div className="winner-art photo-winner"><img src={selected.image} alt={selected.name} referrerPolicy="no-referrer" /><div className="image-shade" /><div className="rank-ribbon">{activeStrategy.ribbon}</div><span>{config.city} · {selected.district}</span></div><div className="winner-body"><div className="winner-title"><div><span>{activeStrategy.label}方案</span><h2>{selected.name}</h2><small className="source-inline">来源：{selected.source.label}</small></div><div className="group-score"><strong>{selected.groupFit}</strong><span>GROUP FIT<small>真实成员排序分</small></span></div></div><div className="facts-row"><span><i>◷</i><b>{selected.durationLabel}</b><small>{formatDate(config.date)} · {config.startTime}</small></span><span><i>¥</i><b>{selected.priceLabel}</b><small>{selected.priceValue === null ? "价格未参与硬过滤" : "已进入预算过滤"}</small></span><span><i>⌖</i><b>{selected.meanTravelMinutes ? `人均估算 ${selected.meanTravelMinutes} 分钟` : "距离未参与"}</b><small>从各成员出发区域计算</small></span></div><div className="score-breakdown"><span>最低满意度 <b>{selected.minUtility}</b></span><span>群体均值 <b>{selected.meanUtility}</b></span><span>Nash 福利 <b>{selected.geoMean}</b></span><span>Pareto <b>{selected.onParetoFrontier ? "是" : "否"}</b></span></div><div className="why-box"><span>{selected.id === main.id && aiExplanation ? `DeepSeek：${aiExplanation.headline}` : `为什么是“${activeStrategy.label}”？`}</span><p>{selected.id === main.id && aiExplanation ? `${aiExplanation.reasoning} ${aiExplanation.tradeoff}` : `${activeStrategy.note}。${selected.explanation}`}</p></div></div></article><aside className="response-panel"><div className="response-head"><span>成员满意度</span><b>{members.length} 人</b></div><div className="utility-list">{selected.memberUtilities.map((item) => <div key={item.memberId}><span>{item.name.slice(0, 1)}</span><p><b>{item.name}</b><small>{members.find((member) => member.id === item.memberId)?.origin}{item.travelMinutes ? ` · 约 ${item.travelMinutes} 分钟` : ""}</small></p><strong>{item.utility}</strong></div>)}</div><p>当前查看“{activeStrategy.label}”：{activeStrategy.note}。</p><button className="accept-button" onClick={() => onLock(selected)}>锁定“{activeStrategy.label}”方案</button><button className="veto-button" onClick={() => onVeto(selected)}>否决这个方案并重新计算</button></aside></div>
+  </section>;
 }
 
 function LockedScreen({ config, result, onCalendar, onReset, onShare }: { config: RoomConfig; result: RankedCandidate; onCalendar: () => void; onReset: () => void; onShare: () => void }) {

@@ -129,6 +129,9 @@ test("the UI exposes consent-based location, city sync, and feedback-driven refr
   assert.match(page, /先设定你的选择边界/);
   assert.match(page, /30 分钟.*60 分钟.*1\.5 小时.*不限/);
   assert.match(page, /没有额外要求也可以直接提交/);
+  assert.match(page, /setSelectedStrategy/);
+  assert.match(page, /本轮三种策略得出同一方案/);
+  assert.match(page, /onLock\(selected\)/);
   assert.match(page, /strategy: "learn"/);
 });
 
