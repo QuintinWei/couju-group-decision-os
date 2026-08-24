@@ -70,6 +70,16 @@ test("keeps provenance, DeepSeek extraction, and deterministic ranking in the pr
   await access(new URL("../docs/AI_WORKFLOW.md", import.meta.url));
 });
 
+test("persists explicit shared-decision round fields in the D1 schema", async () => {
+  const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+
+  assert.match(schema, /currentRound: integer\("current_round"\).*default\(1\)/s);
+  assert.match(schema, /roundHistoryJson: text\("round_history_json"\)/);
+  assert.match(schema, /refreshRequestRound: integer\("refresh_request_round"\)/);
+  assert.match(schema, /privateCandidatesJson: text\("private_candidates_json"\)/);
+  assert.match(schema, /nominatedCandidateJson: text\("nominated_candidate_json"\)/);
+});
+
 test("candidate endpoint keeps a citywide pool and leaves commute limits to member ranking", async () => {
   const base = "/api/candidates?city=%E4%B8%8A%E6%B5%B7&kind=dining&location=121.47,31.23&seed=citywide-test";
   const [response, restrictedResponse] = await Promise.all([

@@ -10,6 +10,8 @@ export const rooms = sqliteTable("rooms", {
   targetPeople: integer("target_people").notNull(),
   candidatesJson: text("candidates_json").notNull(),
   candidateMetaJson: text("candidate_meta_json").notNull(),
+  currentRound: integer("current_round").notNull().default(1),
+  roundHistoryJson: text("round_history_json").notNull().default("[]"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -29,6 +31,9 @@ export const members = sqliteTable("members", {
   extractionJson: text("extraction_json"),
   choicesJson: text("choices_json"),
   submittedAt: text("submitted_at"),
+  refreshRequestRound: integer("refresh_request_round"),
+  privateCandidatesJson: text("private_candidates_json"),
+  nominatedCandidateJson: text("nominated_candidate_json"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [
