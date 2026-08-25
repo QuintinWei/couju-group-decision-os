@@ -5,8 +5,6 @@ export const rooms = sqliteTable("rooms", {
   city: text("city").notNull(),
   kind: text("kind").notNull(),
   date: text("date").notNull(),
-  startTime: text("start_time").notNull(),
-  endTime: text("end_time").notNull(),
   scheduleConfigJson: text("schedule_config_json").notNull().default("{}"),
   resolvedScheduleJson: text("resolved_schedule_json"),
   targetPeople: integer("target_people").notNull(),
@@ -16,7 +14,9 @@ export const rooms = sqliteTable("rooms", {
   roundHistoryJson: text("round_history_json").notNull().default("[]"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
-});
+}, (table) => [
+  index("rooms_updated_at_idx").on(table.updatedAt),
+]);
 
 export const members = sqliteTable("members", {
   id: text("id").primaryKey(),

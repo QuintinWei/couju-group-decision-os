@@ -158,6 +158,15 @@ export type RankedCandidate = Candidate & {
 
 type DemoTemplate = Omit<Candidate, "city" | "district" | "address" | "source" | "location"> & { travel: number };
 
+/**
+ * 通勤时间来自直线距离估算，不是路网时间。超过成员上限的候选不再直接排除，
+ * 只有超出这个容差才排除；容差之内由 scoreUser 重罚，让估算误差不会静默删掉可行候选。
+ */
+export const COMMUTE_TOLERANCE_MINUTES = 15;
+
+/** 数据不确定性的扣分权重。uncertainty 上限 0.32，因此最多扣掉约 11 分。 */
+export const UNCERTAINTY_PENALTY_WEIGHT = 0.35;
+
 const activityTemplates: DemoTemplate[] = [
   demo("massage", "activity", "头疗按摩", "松下头疗放松馆", "头疗按摩 · 双人放松", "/candidates/activity-brunch.jpg", 168, 90, 24, { indoor: true, quiet: true, conversationFriendly: false, nonSpicyAvailable: null, queueRisk: "low" }),
   demo("climb", "activity", "攀岩", "岩时攀岩馆", "室内抱石 · 含基础教学", "/candidates/activity-climb.jpg", 198, 150, 32, { indoor: true, quiet: false, conversationFriendly: false, nonSpicyAvailable: null, queueRisk: "medium" }),
@@ -368,7 +377,7 @@ export function rankGroupCandidates(
       if (memberContexts.some(({ member, budget, commute, travelMinutes, availableMinutes, noSpicy }) =>
         member.choices[candidate.id] === "no" ||
         (budget !== null && candidate.priceValue !== null && candidate.priceValue > budget) ||
-        (commute !== null && travelMinutes !== null && travelMinutes > commute) ||
+        (commute !== null && travelMinutes !== null && travelMinutes > commute + COMMUTE_TOLERANCE_MINUTES) ||
         candidate.durationMinutes > availableMinutes ||
         (noSpicy && candidate.features.nonSpicyAvailable === false)
       )) return [];
@@ -390,10 +399,12 @@ export function rankGroupCandidates(
       const geoMean = Math.exp(utilities.reduce((sum, value) => sum + Math.log(Math.max(value, 0.01)), 0) / utilities.length);
       const uncertainty = clamp((candidate.source.mode === "demo" ? 0.08 : 0) + unknownFacts.length * 0.055, 0, 0.32);
       const meetsFloor = minUtility >= 0.6;
-      const raw = (meetsFloor ? 0.35 * minUtility + 0.55 * geoMean + 0.1 * meanUtility : 0.65 * minUtility + 0.25 * geoMean + 0.1 * meanUtility) - 0.08 * uncertainty;
+      const raw = (meetsFloor ? 0.35 * minUtility + 0.55 * geoMean + 0.1 * meanUtility : 0.65 * minUtility + 0.25 * geoMean + 0.1 * meanUtility) - UNCERTAINTY_PENALTY_WEIGHT * uncertainty;
       const groupFit = Math.round(clamp(raw, 0, 1) * 100);
       const likedCount = memberContexts.filter(({ member }) => member.choices[candidate.id] === "like").length;
+      const commuteStretchCount = memberContexts.filter(({ commute, travelMinutes }) => commute !== null && travelMinutes !== null && travelMinutes > commute).length;
       const evidence = [`${likedCount}/${readyMembers.length} 位成员明确喜欢`, `最低成员满意度 ${Math.round(minUtility * 100)}`, `Nash 群体效用 ${Math.round(geoMean * 100)}`];
+      if (commuteStretchCount > 0) evidence.push(`${commuteStretchCount} 位成员的估算通勤超过上限，已按超限扣分（估算非路网时间）`);
 
       return [{
         ...candidate,
@@ -428,7 +439,10 @@ function scoreUser(candidate: Candidate, context: RankContext, choice: Choice | 
   const adjustments: number[] = [];
   if (budget !== null && candidate.priceValue !== null) adjustments.push(clamp(1 - candidate.priceValue / Math.max(budget, 1) * 0.5, 0.35, 1));
   const travel = travelOverride === undefined ? candidate.estimatedTravelMinutes : travelOverride;
-  if (commute !== null && travel !== null) adjustments.push(clamp(1 - travel / Math.max(commute, 1) * 0.35, 0.4, 1));
+  if (commute !== null && travel !== null) {
+    const ratio = travel / Math.max(commute, 1);
+    adjustments.push(ratio > 1 ? clamp(0.5 - (ratio - 1) * 1.2, 0.05, 0.5) : clamp(1 - ratio * 0.35, 0.65, 1));
+  }
   if (context.setting === "室内优先" && candidate.features.indoor !== null) adjustments.push(candidate.features.indoor ? 0.95 : 0.45);
   if (context.setting === "户外优先" && candidate.features.indoor !== null) adjustments.push(candidate.features.indoor ? 0.45 : 0.95);
   if (context.setting === "安静聊天") {
@@ -470,8 +484,12 @@ function featureMatch(candidate: Candidate, feature: SoftPreferenceFeature): num
 }
 
 function formatDuration(minutes: number): string {
-  if (minutes % 60 === 0) return `${minutes / 60} 小时`;
-  return `${Math.floor(minutes / 60)}.5 小时`;
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (rest === 0) return `${hours} 小时`;
+  if (rest === 30) return `${hours}.5 小时`;
+  return `${hours} 小时 ${rest} 分钟`;
 }
 
 function parseLimit(label: string): number | null {

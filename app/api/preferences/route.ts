@@ -1,4 +1,5 @@
 import { extractWithRules, type DecisionKind, type HardConstraint, type HardConstraintType, type PreferenceExtraction, type SoftPreference, type SoftPreferenceFeature } from "../../../lib/couju";
+import { parseAiEndpointCaller } from "../../../lib/ai-endpoint";
 
 export const dynamic = "force-dynamic";
 
@@ -6,9 +7,9 @@ const hardTypes = new Set<HardConstraintType>(["arrival_after", "leave_before", 
 const softFeatures = new Set<SoftPreferenceFeature>(["quiet", "conversation", "indoor", "outdoor", "queue_time", "price"]);
 
 export async function POST(request: Request) {
-  let body: { note?: unknown; kind?: unknown; city?: unknown; date?: unknown; startTime?: unknown; endTime?: unknown };
+  let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    body = await request.json() as Record<string, unknown>;
   } catch {
     return Response.json({ error: "请求内容不是有效 JSON" }, { status: 400 });
   }
@@ -21,6 +22,12 @@ export async function POST(request: Request) {
   if (!apiKey) {
     return Response.json({ extraction: { ...extractWithRules(note, kind), warning: "未配置 DeepSeek Key，已使用本地规则抽取。" } });
   }
+
+  // 规则抽取不花钱，所以只在真正要调用 DeepSeek 之前校验成员身份。
+  const caller = parseAiEndpointCaller(body);
+  if (!caller) return Response.json({ error: "成员身份无效" }, { status: 400 });
+  const { authenticateMemberToken } = await import("../../../lib/room-store");
+  if (!await authenticateMemberToken(caller)) return Response.json({ error: "成员身份已失效，请重新加入" }, { status: 403 });
 
   const prompt = buildPrompt({
     note,

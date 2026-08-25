@@ -34,7 +34,7 @@ test("failed private discovery returns to a retryable constraints state", () => 
   assert.deepEqual(privateDiscoveryFailure("temporary failure"), { stage: "constraints", message: "temporary failure", retryable: true });
 });
 
-test("the unauthenticated join DTO contains only room summary and joined display names", () => {
+test("the unauthenticated join DTO exposes only room summary counts, never member names", () => {
   const privateCard = { ...shared[0], id: "private-card-id", source: { ...shared[0].source, providerId: "private-poi-id" } };
   const room = {
     code: "ABC123",
@@ -63,10 +63,10 @@ test("the unauthenticated join DTO contains only room summary and joined display
     resolvedSchedule: { startAt: "2026-08-24T18:00:00+08:00", endAt: "2026-08-24T21:00:00+08:00", attendeeIds: ["member"] },
     targetCount: 2,
     joinedCount: 1,
-    joinedNames: ["成员"],
     status: "open",
   });
-  assert.doesNotMatch(JSON.stringify(joinRoom), /origin|location|note|extraction|choices|budget|commute|token|private|candidate/i);
+  assert.doesNotMatch(JSON.stringify(joinRoom), /成员/);
+  assert.doesNotMatch(JSON.stringify(joinRoom), /origin|location|note|extraction|choices|budget|commute|token|private|candidate|name/i);
 });
 
 test("authenticated participant DTO keeps private cards isolated from peers", () => {

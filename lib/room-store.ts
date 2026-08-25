@@ -4,6 +4,7 @@ import { aggregatePrivateCategoryPenalties, aggregateRoundFeedback, type RoundFe
 import { allCurrentMembersSubmitted } from "./round-api";
 import { hasSubmittedMembersAtAdvanceBoundary } from "./round-store-guard";
 import { validateMemberSubmission } from "./member-submission";
+import { randomRoomCode } from "./room-code";
 import { resolveGroupSchedule, type AvailabilityInterval, type ResolvedSchedule } from "./scheduling";
 
 export type CandidateMeta = {
@@ -72,8 +73,6 @@ type RoomRow = {
   city: string;
   kind: string;
   date: string;
-  start_time: string;
-  end_time: string;
   schedule_config_json?: string | null;
   resolved_schedule_json?: string | null;
   target_people: number;
@@ -129,6 +128,8 @@ export async function createStoredRoom(input: {
 }) {
   if (input.candidates.length !== 12 || !hasUniqueProviderIds(input.candidates)) throw new Error("INVALID_CANDIDATES");
   const db = getD1();
+  try { await purgeExpiredRooms(); }
+  catch (cause) { console.warn("[rooms] retention purge skipped:", cause instanceof Error ? cause.message : "unknown error"); }
   const code = await createUniqueCode();
   const memberId = crypto.randomUUID();
   const memberToken = randomToken();
@@ -136,8 +137,8 @@ export async function createStoredRoom(input: {
   const now = new Date().toISOString();
 
   await db.batch([
-    db.prepare("INSERT INTO rooms (code, city, kind, date, start_time, end_time, schedule_config_json, resolved_schedule_json, target_people, candidates_json, candidate_meta_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(code, input.config.city, input.config.kind, input.config.dateRange.start, "", "", JSON.stringify({ dateRange: input.config.dateRange, preferredPeriods: input.config.preferredPeriods, durationMinutes: input.config.durationMinutes }), null, input.config.people, JSON.stringify(input.candidates), JSON.stringify(input.meta), now, now),
+    db.prepare("INSERT INTO rooms (code, city, kind, date, schedule_config_json, resolved_schedule_json, target_people, candidates_json, candidate_meta_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(code, input.config.city, input.config.kind, input.config.dateRange.start, JSON.stringify({ dateRange: input.config.dateRange, preferredPeriods: input.config.preferredPeriods, durationMinutes: input.config.durationMinutes }), null, input.config.people, JSON.stringify(input.candidates), JSON.stringify(input.meta), now, now),
     db.prepare("INSERT INTO members (id, room_code, token_hash, name, origin, origin_lng, origin_lat, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(memberId, code, tokenHash, input.creatorName, input.creatorOrigin, input.creatorOriginLocation?.lng ?? null, input.creatorOriginLocation?.lat ?? null, now, now),
   ]);
@@ -382,6 +383,11 @@ async function authenticateMember(input: MemberAuth): Promise<AuthenticatedMembe
   return row;
 }
 
+/** Identity check for endpoints that only need to know the caller is a real member of the room. */
+export async function authenticateMemberToken(input: MemberAuth): Promise<boolean> {
+  return Boolean(await authenticateMember(input));
+}
+
 async function readRoomRound(roomCode: string): Promise<RoomRoundRow | null> {
   return getD1().prepare("SELECT current_round, round_history_json, candidates_json, created_at, updated_at FROM rooms WHERE code = ? LIMIT 1")
     .bind(roomCode).first<RoomRoundRow>();
@@ -428,12 +434,27 @@ function hasUniqueProviderIds(candidates: Candidate[]): boolean {
 async function createUniqueCode() {
   const db = getD1();
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const code = randomToken().replace(/[^A-Z0-9]/g, "").slice(0, 6).toUpperCase();
-    if (code.length < 6) continue;
+    const code = randomRoomCode();
     const existing = await db.prepare("SELECT 1 AS found FROM rooms WHERE code = ? LIMIT 1").bind(code).first();
     if (!existing) return code;
   }
   throw new Error("ROOM_CODE_EXHAUSTED");
+}
+
+export const ROOM_RETENTION_DAYS = 30;
+
+/**
+ * rooms 与 members 只增不减，且当前部署形态没有 wrangler cron 可以挂定时任务。
+ * 建房时机会式清理一次过期房间，失败不影响建房本身。
+ */
+export async function purgeExpiredRooms(retentionDays = ROOM_RETENTION_DAYS, now = new Date()) {
+  const cutoff = new Date(now.getTime() - retentionDays * 86_400_000).toISOString();
+  const db = getD1();
+  await db.batch([
+    db.prepare("DELETE FROM members WHERE room_code IN (SELECT code FROM rooms WHERE updated_at < ?)").bind(cutoff),
+    db.prepare("DELETE FROM rooms WHERE updated_at < ?").bind(cutoff),
+  ]);
+  return cutoff;
 }
 
 function randomToken() {

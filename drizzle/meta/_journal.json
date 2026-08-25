@@ -29,6 +29,13 @@
       "when": 1787581294087,
       "tag": "0003_loose_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787589897485,
+      "tag": "0004_drop_legacy_room_times",
+      "breakpoints": true
     }
   ]
 }

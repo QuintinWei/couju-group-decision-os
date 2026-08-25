@@ -14,14 +14,16 @@ export type JoinRoomDto = {
   resolvedSchedule: StoredRoom["config"]["resolvedSchedule"];
   targetCount: number;
   joinedCount: number;
-  joinedNames: string[];
   status: "open" | "full";
 };
 
 type PeerMember = Omit<StoredMember, "privateCandidates" | "nominatedCandidate" | "availability"> & { availabilitySubmitted: boolean };
 export type ParticipantRoomDto = Omit<StoredRoom, "members"> & { members: Array<StoredMember | PeerMember> };
 
-/** Safe for anyone who knows the six-character code. */
+/**
+ * Safe for anyone who knows the six-character code. Deliberately omits member
+ * display names: the code alone must never reveal who is already in a room.
+ */
 export function toJoinRoom(room: StoredRoom): JoinRoomDto {
   return {
     code: room.code,
@@ -37,7 +39,6 @@ export function toJoinRoom(room: StoredRoom): JoinRoomDto {
     resolvedSchedule: room.config.resolvedSchedule,
     targetCount: room.config.people,
     joinedCount: room.members.length,
-    joinedNames: room.members.map((member) => member.name),
     status: room.members.length >= room.config.people ? "full" : "open",
   };
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ACTIVITY_INTERESTS, DINING_INTERESTS, PREFERENCE_FLOW, canRefreshCandidates, extractWithRules, getDemoCandidates, parseCommuteLimit, rankCandidates } from "../lib/couju.ts";
+import { ACTIVITY_INTERESTS, COMMUTE_TOLERANCE_MINUTES, DINING_INTERESTS, PREFERENCE_FLOW, canRefreshCandidates, extractWithRules, getDemoCandidates, parseCommuteLimit, rankCandidates } from "../lib/couju.ts";
 
 const config = { kind: "dining", city: "上海", date: "2026-08-23", startTime: "18:00", endTime: "21:30", people: 4 };
 
@@ -29,10 +29,23 @@ test("budget, commute, and swipe choices really filter recommendations", () => {
   const ranked = rankCandidates(candidates, { config, choices: allOkay, budgetLabel: "≤ ¥100", commuteLabel: "≤ 30 分钟", setting: "都可以", extraction: null });
   assert.ok(ranked.length > 0);
   assert.ok(ranked.every((item) => item.priceValue !== null && item.priceValue <= 100));
-  assert.ok(ranked.every((item) => item.estimatedTravelMinutes !== null && item.estimatedTravelMinutes <= 30));
+  assert.ok(ranked.every((item) => item.estimatedTravelMinutes !== null && item.estimatedTravelMinutes <= 30 + COMMUTE_TOLERANCE_MINUTES));
 
   const allNo = Object.fromEntries(candidates.map((item) => [item.id, "no"]));
   assert.equal(rankCandidates(candidates, { config, choices: allNo, budgetLabel: "不限", commuteLabel: "不限", setting: "都可以", extraction: null }).length, 0);
+});
+
+test("an estimated commute overrun is penalised instead of silently dropped", () => {
+  const base = getDemoCandidates("上海", "dining")[0];
+  const near = { ...base, id: "near", name: "近的", rating: null, location: null, estimatedTravelMinutes: 28 };
+  const stretch = { ...base, id: "stretch", name: "略远", rating: null, location: null, estimatedTravelMinutes: 38 };
+  const far = { ...base, id: "far", name: "太远", rating: null, location: null, estimatedTravelMinutes: 60 };
+  const choices = { near: "okay", stretch: "okay", far: "okay" };
+  const ranked = rankCandidates([near, stretch, far], { config, choices, budgetLabel: "不限", commuteLabel: "≤ 30 分钟", setting: "都可以", extraction: null });
+
+  assert.deepEqual(ranked.map((item) => item.id), ["near", "stretch"]);
+  assert.ok(ranked[0].groupFit > ranked[1].groupFit);
+  assert.ok(ranked[1].evidence.some((line) => /通勤超过上限/.test(line)));
 });
 
 test("veto exclusion removes the current winner and recalculates", () => {

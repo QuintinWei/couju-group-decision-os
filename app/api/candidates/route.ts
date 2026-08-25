@@ -1,5 +1,6 @@
 import { ACTIVITY_INTERESTS, DEFAULT_INTERESTS, DINING_INTERESTS, estimateTravelBetween, estimateTravelMinutes, extractWithRules, getDemoCandidates, rankGroupCandidates, SUPPORTED_CITIES, type Candidate, type CityName, type DecisionKind, type RoomConfig } from "../../../lib/couju";
 import { amapPagesForBatch, selectCandidateBatch } from "../../../lib/candidate-pool";
+import { withAmapCache } from "../../../lib/amap-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,14 @@ export async function GET(request: Request) {
 }
 
 async function searchAmap(input: { key: string; city: CityName; kind: DecisionKind; interest: string; page: number }) {
+  const cached = await withAmapCache<AmapPoi>(
+    { city: input.city, kind: input.kind, interest: input.interest, page: input.page },
+    () => fetchAmapPois(input),
+  );
+  return { interest: input.interest, pois: cached.pois, fetchedAt: cached.fetchedAt };
+}
+
+async function fetchAmapPois(input: { key: string; city: CityName; kind: DecisionKind; interest: string; page: number }): Promise<AmapPoi[]> {
   const params = new URLSearchParams({
     key: input.key,
     keywords: input.interest,
@@ -72,12 +81,12 @@ async function searchAmap(input: { key: string; city: CityName; kind: DecisionKi
   params.set("region", `${input.city}市`);
   params.set("city_limit", "true");
   const response = await fetch(`https://restapi.amap.com/v5/place/text?${params}`, { signal: AbortSignal.timeout(9000) });
-  if (!response.ok) return { interest: input.interest, pois: [] as AmapPoi[] };
+  if (!response.ok) return [];
   const payload = await response.json() as { status?: string; pois?: AmapPoi[] };
-  return { interest: input.interest, pois: payload.status === "1" && Array.isArray(payload.pois) ? payload.pois : [] };
+  return payload.status === "1" && Array.isArray(payload.pois) ? payload.pois : [];
 }
 
-function diversify(resultSets: Array<{ interest: string; pois: AmapPoi[] }>, city: CityName, kind: DecisionKind, avoidTokens: string[], excludedIds: Set<string>, center: { lng: number; lat: number } | null) {
+function diversify(resultSets: Array<{ interest: string; pois: AmapPoi[]; fetchedAt: string }>, city: CityName, kind: DecisionKind, avoidTokens: string[], excludedIds: Set<string>, center: { lng: number; lat: number } | null) {
   const seen = new Set<string>(); const candidates: Candidate[] = [];
   const maxDepth = Math.max(0, ...resultSets.map((set) => set.pois.length));
   for (let depth = 0; depth < maxDepth; depth += 1) {
@@ -86,14 +95,14 @@ function diversify(resultSets: Array<{ interest: string; pois: AmapPoi[] }>, cit
       if (!poi?.id || seen.has(poi.id) || excludedIds.has(poi.id)) continue;
       const searchable = `${poi.name || ""} ${poi.type || ""} ${poi.business?.tag || ""}`;
       if (avoidTokens.some((token) => searchable.includes(token))) continue;
-      const mapped = mapPoi(poi, city, kind, candidates.length, result.interest, center);
+      const mapped = mapPoi(poi, city, kind, candidates.length, result.interest, center, result.fetchedAt);
       if (mapped.length) { seen.add(poi.id); candidates.push(mapped[0]); }
     }
   }
   return candidates;
 }
 
-function mapPoi(poi: AmapPoi, city: CityName, kind: DecisionKind, index: number, matchedInterest: string, center: { lng: number; lat: number } | null): Candidate[] {
+function mapPoi(poi: AmapPoi, city: CityName, kind: DecisionKind, index: number, matchedInterest: string, center: { lng: number; lat: number } | null, fetchedAt: string): Candidate[] {
   if (!poi.id || !poi.name) return [];
   const [lng, lat] = typeof poi.location === "string" ? poi.location.split(",").map(Number) : [NaN, NaN];
   const location = Number.isFinite(lng) && Number.isFinite(lat) ? { lng, lat } : null;
@@ -128,7 +137,7 @@ function mapPoi(poi: AmapPoi, city: CityName, kind: DecisionKind, index: number,
     estimatedTravelMinutes: estimateTravelBetween(center, location) ?? estimateTravelMinutes(city, location),
     rating,
     openToday: poi.business?.opentime_today || null,
-    source: { mode: "live", label: "高德地图 POI", fetchedAt: new Date().toISOString(), providerId: poi.id, url: markerUrl },
+    source: { mode: "live", label: "高德地图 POI", fetchedAt, providerId: poi.id, url: markerUrl },
     features: {
       indoor: kind === "dining" ? true : null,
       quiet: /安静|书店|美术馆|博物馆/.test(tag + poi.name) ? true : null,

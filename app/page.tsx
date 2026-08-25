@@ -429,7 +429,7 @@ export default function Home() {
   const parsePreference = async () => {
     setParseLoading(true); setParseError("");
     try {
-      const response = await fetch("/api/preferences", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note, kind: config.kind, city: config.city, date: config.date, startTime: config.startTime, endTime: config.endTime }) });
+      const response = await fetch("/api/preferences", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note, kind: config.kind, city: config.city, date: config.date, startTime: config.startTime, endTime: config.endTime, roomCode, memberId: identity?.id, token: identity?.token }) });
       const payload = await response.json() as { extraction?: PreferenceExtraction; error?: string };
       if (!response.ok || !payload.extraction) throw new Error(payload.error || "解析失败");
       setExtraction(payload.extraction);
@@ -446,8 +446,8 @@ export default function Home() {
     if (!room || readyMembers.length !== room.members.length) return setToast("等待所有已加入成员完成本轮选择");
     setRankingStep(0); setAiExplanation(null); setStage("ranking");
     const top = ranked.slice(0, 3).map((candidate) => ({ name: candidate.name, groupFit: candidate.groupFit, minUtility: candidate.minUtility, meanUtility: candidate.meanUtility, geoMean: candidate.geoMean, evidence: candidate.evidence }));
-    const people = readyMembers.map((member) => ({ name: member.name, origin: member.origin, budget: member.budgetLabel, commute: member.commuteLabel }));
-    void fetch("/api/explain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ city: config.city, kind: config.kind, members: people, candidates: top }) }).then((response) => response.json()).then((payload: { explanation?: AiExplanation | null }) => { if (payload.explanation) setAiExplanation(payload.explanation); }).catch(() => undefined);
+    const people = readyMembers.map((member) => ({ budget: member.budgetLabel, commute: member.commuteLabel }));
+    void fetch("/api/explain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ city: config.city, kind: config.kind, members: people, candidates: top, roomCode, memberId: identity?.id, token: identity?.token }) }).then((response) => response.json()).then((payload: { explanation?: AiExplanation | null }) => { if (payload.explanation) setAiExplanation(payload.explanation); }).catch(() => undefined);
   };
   const confirmConstraints = async () => {
     if (!identity || !roomCode) return;
