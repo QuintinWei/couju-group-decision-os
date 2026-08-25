@@ -101,6 +101,8 @@ test("round storage rejects legacy replacement and validates private and shared 
   assert.match(roomStore, /code: "STALE_ROUND"/);
   assert.match(roomStore, /startedAt: history\.at\(-1\)\?\.endedAt \?\? room\.created_at/);
   assert.match(roomStore, /budget_label|commute_label|origin_lng|extraction_json/);
+  assert.match(roomStore, /private_candidates_json, nominated_candidate_json, submitted_at FROM members/);
+  assert.match(roomStore, /privateCandidates: safeJson<Candidate\[\]>/);
   assert.doesNotMatch(roomStore, /UPDATE members[^"]*round_history_json = \?/);
 });
 

@@ -421,8 +421,8 @@ async function readRoomRound(roomCode: string): Promise<RoomRoundRow | null> {
 }
 
 async function readRoundMembers(roomCode: string) {
-  const rows = await getD1().prepare("SELECT id, origin_lng, origin_lat, budget_label, commute_label, setting, extraction_json, choices_json, submitted_at FROM members WHERE room_code = ? ORDER BY created_at ASC")
-    .bind(roomCode).all<Pick<MemberRow, "id" | "origin_lng" | "origin_lat" | "budget_label" | "commute_label" | "setting" | "extraction_json" | "choices_json" | "submitted_at">>();
+  const rows = await getD1().prepare("SELECT id, origin_lng, origin_lat, budget_label, commute_label, setting, extraction_json, choices_json, private_candidates_json, nominated_candidate_json, submitted_at FROM members WHERE room_code = ? ORDER BY created_at ASC")
+    .bind(roomCode).all<Pick<MemberRow, "id" | "origin_lng" | "origin_lat" | "budget_label" | "commute_label" | "setting" | "extraction_json" | "choices_json" | "private_candidates_json" | "nominated_candidate_json" | "submitted_at">>();
   return rows.results.map((member) => ({
     id: member.id,
     originLocation: member.origin_lng !== null && member.origin_lat !== null ? { lng: member.origin_lng, lat: member.origin_lat } : null,
@@ -431,6 +431,8 @@ async function readRoundMembers(roomCode: string) {
     setting: member.setting || "都可以",
     extraction: safeJson<PreferenceExtraction | null>(member.extraction_json, null),
     choices: safeJson<Record<string, Choice>>(member.choices_json, {}),
+    privateCandidates: safeJson<Candidate[]>(member.private_candidates_json ?? null, []),
+    nominatedCandidate: safeJson<Candidate | null>(member.nominated_candidate_json ?? null, null),
     submittedAt: member.submitted_at,
   }));
 }
