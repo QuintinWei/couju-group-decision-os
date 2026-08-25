@@ -73,6 +73,9 @@ type RoomRow = {
   city: string;
   kind: string;
   date: string;
+  /** Legacy columns, always empty. Kept so the INSERT stays valid against the deployed table. */
+  start_time: string;
+  end_time: string;
   schedule_config_json?: string | null;
   resolved_schedule_json?: string | null;
   target_people: number;
@@ -137,8 +140,8 @@ export async function createStoredRoom(input: {
   const now = new Date().toISOString();
 
   await db.batch([
-    db.prepare("INSERT INTO rooms (code, city, kind, date, schedule_config_json, resolved_schedule_json, target_people, candidates_json, candidate_meta_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(code, input.config.city, input.config.kind, input.config.dateRange.start, JSON.stringify({ dateRange: input.config.dateRange, preferredPeriods: input.config.preferredPeriods, durationMinutes: input.config.durationMinutes }), null, input.config.people, JSON.stringify(input.candidates), JSON.stringify(input.meta), now, now),
+    db.prepare("INSERT INTO rooms (code, city, kind, date, start_time, end_time, schedule_config_json, resolved_schedule_json, target_people, candidates_json, candidate_meta_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(code, input.config.city, input.config.kind, input.config.dateRange.start, "", "", JSON.stringify({ dateRange: input.config.dateRange, preferredPeriods: input.config.preferredPeriods, durationMinutes: input.config.durationMinutes }), null, input.config.people, JSON.stringify(input.candidates), JSON.stringify(input.meta), now, now),
     db.prepare("INSERT INTO members (id, room_code, token_hash, name, origin, origin_lng, origin_lat, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(memberId, code, tokenHash, input.creatorName, input.creatorOrigin, input.creatorOriginLocation?.lng ?? null, input.creatorOriginLocation?.lat ?? null, now, now),
   ]);

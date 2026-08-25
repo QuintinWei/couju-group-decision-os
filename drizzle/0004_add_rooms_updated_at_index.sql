@@ -1,0 +1,1 @@
+CREATE INDEX `rooms_updated_at_idx` ON `rooms` (`updated_at`);

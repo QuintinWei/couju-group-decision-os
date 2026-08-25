@@ -33,8 +33,8 @@
     {
       "idx": 4,
       "version": "6",
-      "when": 1787589897485,
-      "tag": "0004_drop_legacy_room_times",
+      "when": 1787621284645,
+      "tag": "0004_add_rooms_updated_at_index",
       "breakpoints": true
     }
   ]
