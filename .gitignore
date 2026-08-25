@@ -31,6 +31,12 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+# Cloudflare local secrets. Not covered by .env* and holds real keys during dev.
+.dev.vars
+.dev.vars.*
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo
 
 # vercel
 .vercel
