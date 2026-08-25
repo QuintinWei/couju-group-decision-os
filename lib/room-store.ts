@@ -20,6 +20,7 @@ export type CandidateMeta = {
   focused?: boolean;
   strategy?: "explore" | "focused" | "learn" | "private";
   commuteWindow?: string;
+  groupIntersection?: boolean;
 };
 
 export type StoredMember = {
@@ -29,6 +30,7 @@ export type StoredMember = {
   originLocation: { lng: number; lat: number } | null;
   budgetLabel: string;
   commuteLabel: string;
+  constraintsReady: boolean;
   setting: string;
   note: string;
   extraction: PreferenceExtraction | null;
@@ -179,6 +181,7 @@ export async function getStoredRoom(code: string): Promise<StoredRoom | null> {
       originLocation: member.origin_lng !== null && member.origin_lat !== null ? { lng: member.origin_lng, lat: member.origin_lat } : null,
       budgetLabel: member.budget_label || "不限",
       commuteLabel: member.commute_label || "不限",
+      constraintsReady: member.budget_label !== null && member.commute_label !== null && member.setting !== null,
       setting: member.setting || "都可以",
       note: member.note || "",
       extraction: safeJson<PreferenceExtraction | null>(member.extraction_json, null),
@@ -242,6 +245,27 @@ export async function updateStoredMember(input: {
   if ((updated.meta.changes ?? 0) !== 1) return { ok: false, code: "STALE_ROUND" };
   await db.prepare("UPDATE rooms SET updated_at = ? WHERE code = ? AND current_round = ?").bind(now, input.roomCode, input.expectedRound).run();
   return { ok: true };
+}
+
+export async function saveStoredMemberConstraints(input: MemberAuth & { budgetLabel: string; commuteLabel: string; setting: string }) {
+  const member = await authenticateMember(input);
+  if (!member) return { ok: false as const, code: "UNAUTHORIZED" as const };
+  const now = new Date().toISOString();
+  const updated = await getD1().prepare("UPDATE members SET budget_label = ?, commute_label = ?, setting = ?, updated_at = ? WHERE id = ? AND room_code = ?")
+    .bind(input.budgetLabel, input.commuteLabel, input.setting, now, input.memberId, input.roomCode).run();
+  return (updated.meta.changes ?? 0) === 1 ? { ok: true as const } : { ok: false as const, code: "UNAUTHORIZED" as const };
+}
+
+export async function replaceInitialCandidates(input: MemberAuth & { candidates: Candidate[]; meta: CandidateMeta }) {
+  if (input.candidates.length !== 12 || !hasUniqueProviderIds(input.candidates)) return { ok: false as const, code: "INVALID_CANDIDATES" as const };
+  const member = await authenticateMember(input);
+  if (!member) return { ok: false as const, code: "UNAUTHORIZED" as const };
+  const room = await getStoredRoom(input.roomCode);
+  if (!room || room.currentRound !== 1 || room.members.length !== room.config.people || room.members.some((item) => !item.constraintsReady || item.submittedAt)) return { ok: false as const, code: "NOT_READY" as const };
+  const now = new Date().toISOString();
+  const updated = await getD1().prepare("UPDATE rooms SET candidates_json = ?, candidate_meta_json = ?, updated_at = ? WHERE code = ? AND current_round = 1")
+    .bind(JSON.stringify(input.candidates), JSON.stringify(input.meta), now, input.roomCode).run();
+  return (updated.meta.changes ?? 0) === 1 ? { ok: true as const } : { ok: false as const, code: "NOT_READY" as const };
 }
 
 export async function updateStoredAvailability(input: MemberAuth & { expectedRound: number; intervals: AvailabilityInterval[] }) {
