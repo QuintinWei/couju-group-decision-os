@@ -108,6 +108,7 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
     advanceGate,
     () => generateNextRound(request, room),
     ({ candidates, meta }) => advanceStoredRound({ ...auth, expectedRound, candidates, meta, reason: refreshReason(room) }),
+    (cause) => console.error("[rounds] advance storage failed:", cause instanceof Error ? cause.message : "unknown error"),
   );
   if (!execution.ok) {
     return execution.code === "GENERATION_FAILED"

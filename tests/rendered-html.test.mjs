@@ -101,6 +101,26 @@ test("round storage rejects legacy replacement and validates private and shared 
   assert.match(roomStore, /code: "STALE_ROUND"/);
   assert.match(roomStore, /startedAt: history\.at\(-1\)\?\.endedAt \?\? room\.created_at/);
   assert.match(roomStore, /budget_label|commute_label|origin_lng|extraction_json/);
+  assert.doesNotMatch(roomStore, /UPDATE members[^"]*round_history_json = \?/);
+});
+
+test("mobile H5 keeps primary actions reachable above the safe area", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /100dvh/);
+  assert.match(css, /env\(safe-area-inset-bottom\)/);
+  assert.match(css, /touch-action:manipulation/);
+  assert.match(css, /@media\(max-width:580px\).*\.zero-result-actions \.full-dark-button\{width:100%/s);
+});
+
+test("zero-result ranking does not call the AI explanation endpoint", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /if \(top\.length > 0\).*fetch\("\/api\/explain"/s);
+});
+
+test("room refresh uses the latest identity without stale polling closures", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /const refreshRoom = useCallback/);
+  assert.match(page, /\[roomCode, stage, refreshRoom\]/);
 });
 
 test("candidate endpoint keeps a citywide pool and leaves commute limits to member ranking", async () => {

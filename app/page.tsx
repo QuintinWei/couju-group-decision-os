@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ACTIVITY_INTERESTS,
   DINING_INTERESTS,
@@ -105,6 +105,7 @@ export default function Home() {
   const [joinRoomSummary, setJoinRoomSummary] = useState<JoinRoomDto | null>(null);
   const [roomCode, setRoomCode] = useState("");
   const [identity, setIdentity] = useState<MemberIdentity | null>(null);
+  const identityRef = useRef<MemberIdentity | null>(null);
   const [roomError, setRoomError] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [aiExplanation, setAiExplanation] = useState<AiExplanation | null>(null);
@@ -141,6 +142,7 @@ export default function Home() {
   const readyMembers = room?.members.filter((member) => member.submittedAt) ?? [];
 
   useEffect(() => { configRef.current = config; }, [config]);
+  useEffect(() => { identityRef.current = identity; }, [identity]);
 
   useEffect(() => {
     if (stage !== "ranking") return;
@@ -155,12 +157,13 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const refreshRoom = async (code: string, quiet = false, auth: MemberIdentity | null = identity) => {
-    if (!auth) return null;
+  const refreshRoom = useCallback(async (code: string, quiet = false, auth?: MemberIdentity | null) => {
+    const activeAuth = auth === undefined ? identityRef.current : auth;
+    if (!activeAuth) return null;
     if (!quiet) setSyncing(true);
     try {
       const query = new URLSearchParams({ code });
-      query.set("memberId", auth.id); query.set("token", auth.token);
+      query.set("memberId", activeAuth.id); query.set("token", activeAuth.token);
       const response = await fetch(`/api/rooms?${query}`, { cache: "no-store" });
       const payload = await response.json() as { room?: StoredRoom; error?: string };
       if (!response.ok || !payload.room) throw new Error(payload.error || "房间加载失败");
@@ -178,7 +181,7 @@ export default function Home() {
       setRoomError(error instanceof Error ? error.message : "房间加载失败");
       return null;
     } finally { if (!quiet) setSyncing(false); }
-  };
+  }, []);
 
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get("room")?.trim().toUpperCase() || "";
@@ -201,13 +204,13 @@ export default function Home() {
       }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [refreshRoom]);
 
   useEffect(() => {
     if (!roomCode || !["availability", "room", "setup", "swipe", "constraints", "private-discovery", "ranking", "results", "locked"].includes(stage)) return;
     const timer = window.setInterval(() => { void refreshRoom(roomCode, true); }, 4000);
     return () => window.clearInterval(timer);
-  }, [roomCode, stage]);
+  }, [roomCode, stage, refreshRoom]);
 
   const resetSession = () => {
     const next = createDefaultConfig();
@@ -447,7 +450,7 @@ export default function Home() {
     setRankingStep(0); setAiExplanation(null); setStage("ranking");
     const top = ranked.slice(0, 3).map((candidate) => ({ name: candidate.name, groupFit: candidate.groupFit, minUtility: candidate.minUtility, meanUtility: candidate.meanUtility, geoMean: candidate.geoMean, evidence: candidate.evidence }));
     const people = readyMembers.map((member) => ({ budget: member.budgetLabel, commute: member.commuteLabel }));
-    void fetch("/api/explain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ city: config.city, kind: config.kind, members: people, candidates: top, roomCode, memberId: identity?.id, token: identity?.token }) }).then((response) => response.json()).then((payload: { explanation?: AiExplanation | null }) => { if (payload.explanation) setAiExplanation(payload.explanation); }).catch(() => undefined);
+    if (top.length > 0) void fetch("/api/explain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ city: config.city, kind: config.kind, members: people, candidates: top, roomCode, memberId: identity?.id, token: identity?.token }) }).then((response) => response.json()).then((payload: { explanation?: AiExplanation | null }) => { if (payload.explanation) setAiExplanation(payload.explanation); }).catch(() => undefined);
   };
   const confirmConstraints = async () => {
     if (!identity || !roomCode) return;

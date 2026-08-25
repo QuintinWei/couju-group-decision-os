@@ -34,8 +34,10 @@ test("generation failure does not invoke mutation", async () => {
 
 test("unexpected storage failure is distinct from candidate generation failure", async () => {
   const gate = evaluateAdvanceGate({ currentRound: 1, members: [submitted], candidates }, "creator", 1);
-  const result = await executeGuardedGeneration(gate, async () => candidates, async () => { throw new Error("D1 unavailable"); });
+  let reported = "";
+  const result = await executeGuardedGeneration(gate, async () => candidates, async () => { throw new Error("D1 unavailable"); }, (error) => { reported = error instanceof Error ? error.message : "unknown"; });
   assert.deepEqual(result, { ok: false, status: 503, code: "SERVICE_FAILED" });
+  assert.equal(reported, "D1 unavailable");
 });
 
 test("membership helper rejects an incomplete current membership", () => {

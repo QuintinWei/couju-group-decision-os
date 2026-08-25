@@ -365,8 +365,8 @@ export async function advanceStoredRound(input: MemberAuth & { expectedRound: nu
   const results = await db.batch([
     db.prepare("UPDATE rooms SET candidates_json = ?, candidate_meta_json = ?, current_round = ?, round_history_json = ?, updated_at = ? WHERE code = ? AND current_round = ? AND updated_at = ? AND (SELECT COUNT(*) FROM members WHERE room_code = ?) = (SELECT COUNT(*) FROM members WHERE room_code = ? AND submitted_at IS NOT NULL)")
       .bind(candidatesJson, metaJson, nextRound, historyJson, now, input.roomCode, input.expectedRound, room.updated_at, input.roomCode, input.roomCode),
-    db.prepare("UPDATE members SET choices_json = NULL, submitted_at = NULL, refresh_request_round = NULL, private_candidates_json = NULL, nominated_candidate_json = NULL, updated_at = ? WHERE room_code = ? AND EXISTS (SELECT 1 FROM rooms WHERE code = ? AND current_round = ? AND round_history_json = ? AND updated_at = ?)")
-      .bind(now, input.roomCode, input.roomCode, nextRound, historyJson, now),
+    db.prepare("UPDATE members SET choices_json = NULL, submitted_at = NULL, refresh_request_round = NULL, private_candidates_json = NULL, nominated_candidate_json = NULL, updated_at = ? WHERE room_code = ? AND EXISTS (SELECT 1 FROM rooms WHERE code = ? AND current_round = ? AND updated_at = ?)")
+      .bind(now, input.roomCode, input.roomCode, nextRound, now),
   ]);
   if ((results[0].meta.changes ?? 0) !== 1) return { ok: false, code: "STALE_ROUND" };
   return { ok: true, currentRound: nextRound };

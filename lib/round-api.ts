@@ -65,7 +65,7 @@ export function collectAdvanceExcludedIds(input: {
 
 type RoundGateFailure = Extract<RoundGateResult, { ok: false }>;
 
-export async function executeGuardedGeneration<T, R>(gate: RoundGateResult, generate: () => Promise<T>, mutate: (generated: T) => Promise<R>): Promise<RoundGateFailure | { ok: true; value: R }> {
+export async function executeGuardedGeneration<T, R>(gate: RoundGateResult, generate: () => Promise<T>, mutate: (generated: T) => Promise<R>, reportServiceError?: (error: unknown) => void): Promise<RoundGateFailure | { ok: true; value: R }> {
   if (!gate.ok) return gate;
   let generated: T;
   try {
@@ -75,7 +75,8 @@ export async function executeGuardedGeneration<T, R>(gate: RoundGateResult, gene
   }
   try {
     return { ok: true, value: await mutate(generated) };
-  } catch {
+  } catch (error) {
+    reportServiceError?.(error);
     return { ok: false, status: 503, code: "SERVICE_FAILED" };
   }
 }
