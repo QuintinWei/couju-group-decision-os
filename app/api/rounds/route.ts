@@ -177,6 +177,8 @@ async function generateNextRound(request: Request, room: StoredRoom): Promise<Ne
     label: `${learned.meta.mode === "demo" ? "根据全体反馈 · 演示" : "根据全体反馈"}`,
     strategy: "learn",
     keywords: learnedInterests,
+    commuteWindow: "沿用逐成员通勤上限",
+    groupIntersection: true,
   };
   return { candidates, meta };
 }

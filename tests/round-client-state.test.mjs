@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getRefreshRequestControl, getRoundControlVisibility, reconcileAuthoritativeRound } from "../lib/round-client-state.ts";
+import { getPreferenceEntryStage, getRefreshRequestControl, getRoundControlVisibility, reconcileAuthoritativeRound } from "../lib/round-client-state.ts";
+
+test("an advanced room enters the shared cards without repeating first-round setup", () => {
+  assert.equal(getPreferenceEntryStage({ currentRound: 2, constraintsReady: true, groupIntersection: false }), "swipe");
+  assert.equal(getPreferenceEntryStage({ currentRound: 1, constraintsReady: true, groupIntersection: true }), "swipe");
+  assert.equal(getPreferenceEntryStage({ currentRound: 1, constraintsReady: true, groupIntersection: false }), "setup");
+});
 
 test("external or local successful advance resets only round-scoped client state", () => {
   assert.deepEqual(reconcileAuthoritativeRound({ knownRound: 1, nextRound: 2 }), {
