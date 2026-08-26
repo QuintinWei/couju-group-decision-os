@@ -243,6 +243,10 @@ test("the room flow exposes round-aware recovery only after a shared round is co
   assert.match(page, /没有交集，先补充每个人的发现/);
   assert.match(page, /查看我的 3 张私人发现卡/);
   assert.match(page, /张反馈学习 · 4 张新类型探索/);
+  assert.match(page, /AI 学到了什么/);
+  assert.match(page, /AI 发现主要分歧/);
+  assert.match(page, /roomNominationCount\(room\)/);
+  assert.doesNotMatch(page, /room\.members\.filter\(\(member\) => member\.nominatedCandidate\)\.length/);
   assert.match(page, /已经完成三轮探索/);
   assert.match(page, /确认开启下一轮/);
   assert.match(page, /调整我的边界/);

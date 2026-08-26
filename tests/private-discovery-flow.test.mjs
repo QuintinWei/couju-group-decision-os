@@ -80,6 +80,7 @@ test("authenticated participant DTO keeps private cards isolated from peers", ()
     ],
   };
   const dto = toParticipantRoom(room, "one");
+  assert.equal(dto.nominationCount, 2);
   assert.equal(dto.members[0].privateCandidates.length, 1);
   assert.equal("privateCandidates" in dto.members[1], false);
   assert.doesNotMatch(JSON.stringify(dto.members[1]), /private-card-id|private-poi-id/);
