@@ -68,11 +68,11 @@ https://github.com/user-attachments/assets/7b5fe9cf-3378-4757-99ac-128d2a0ed951
 
 ## 为什么这是 AI 产品，而不只是投票工具
 
-AI 负责理解低成本、非结构化的人类表达，并把它整理成可确认的结构化约束；最终决定不交给语言模型“凭感觉”生成，而由可测试、可复现的确定性算法完成。
+投票工具只能统计“谁选了什么”，凑局还要先理解每个人为什么喜欢或拒绝，再把自然语言、滑卡反馈、时间、预算和通勤边界映射到同一套候选特征中。DeepSeek 负责理解补充要求和生成可读解释，确定性算法负责验证地点是否可行并完成多人公平排序；AI 不虚构地点，也不能绕过任何成员的硬约束。
 
 | 模块 | 方法 | 作用 |
 |---|---|---|
-| Preference Extractor | DeepSeek JSON Output + 校验 | 把“我 17 点后才到，不想排队”抽取为时间硬约束和排队软偏好 |
+| Preference Extractor | DeepSeek JSON Output + 校验 | 把“海鲜过敏、别太吵、最好不用排队”抽取为过敏底线及安静、少排队偏好 |
 | Candidate Retriever | 探索 / 倾向 / 学习三种召回策略 | 高德按娱乐或菜系关键词分桶、多批召回，再按所有成员各自通勤上限求共同可达交集 |
 | Room Coordinator | D1 持久化房间 | 保存真实成员、独立提交与候选快照，让分享链接跨设备可用 |
 | Feasibility Checker | 确定性规则 | 任一成员明确拒绝或触发预算、时间、忌口底线时排除候选；通勤按容差重罚 |
@@ -87,7 +87,7 @@ AI 负责理解低成本、非结构化的人类表达，并把它整理成可�
 用户输入：
 
 ```text
-我 17:00 后才到，晚上 8 点前得走，不想排队。
+我海鲜过敏，想找安静一点、适合聊天的地方，最好不用排队。
 ```
 
 结构化输出：
@@ -95,10 +95,11 @@ AI 负责理解低成本、非结构化的人类表达，并把它整理成可�
 ```json
 {
   "hard_constraints": [
-    { "type": "arrival_after", "value": "17:00", "confidence": 0.99 },
-    { "type": "leave_before", "value": "20:00", "confidence": 0.99 }
+    { "type": "allergy", "value": "海鲜", "confidence": 0.99 }
   ],
   "soft_preferences": [
+    { "feature": "quiet", "direction": "maximize", "weight": 0.8, "confidence": 0.93 },
+    { "feature": "conversation", "direction": "maximize", "weight": 0.8, "confidence": 0.91 },
     { "feature": "queue_time", "direction": "minimize", "weight": 0.7, "confidence": 0.82 }
   ],
   "needs_confirmation": true
