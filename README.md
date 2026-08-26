@@ -6,9 +6,9 @@
 
 ## 演示视频
 
-[▶ 在线播放最新完整演示视频](https://github.com/QuintinWei/couju-group-decision-os/blob/main/docs/assets/couju-demo.mp4)
+https://github.com/user-attachments/assets/7b5fe9cf-3378-4757-99ac-128d2a0ed951
 
-> 视频保存在仓库中，点击后可直接使用 GitHub 播放器观看，无需下载。
+> 最新完整产品演示，可直接在 GitHub 页面内播放，无需下载。
 
 ## 作品简介
 
