@@ -1,6 +1,7 @@
 import { ACTIVITY_INTERESTS, DEFAULT_INTERESTS, DINING_INTERESTS, estimateTravelBetween, estimateTravelMinutes, extractWithRules, getDemoCandidates, rankGroupCandidates, SUPPORTED_CITIES, type Candidate, type CityName, type DecisionKind, type RoomConfig } from "../../../lib/couju";
 import { amapPagesForBatch, selectCandidateBatch } from "../../../lib/candidate-pool";
 import { withAmapCache } from "../../../lib/amap-cache";
+import { buildAmapPlaceSearchUrl } from "../../../lib/amap-place-search";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
 
   try {
     const pages = privateMode ? [page] : amapPagesForBatch(batchIndex);
-    const resultSets = await Promise.all(interests.flatMap((interest) => pages.map((pageNumber) => searchAmap({ key, city, kind, interest, page: pageNumber }))));
+    const resultSets = await Promise.all(interests.flatMap((interest) => pages.map((pageNumber) => searchAmap({ key, city, kind, interest, page: pageNumber, center: location }))));
     const prioritized = prioritizeStrategy(diversify(resultSets, city, kind, avoidTokens, excludedIds, location), strategy, interests, explorationTypes, learnedScores, privateRanking);
     const candidates = privateMode ? prioritized.slice(0, targetCount) : selectCandidateBatch(prioritized, { excludedIds, batchSize: targetCount, seed, kind });
     if (candidates.length !== targetCount || !hasUniqueProviderIds(candidates)) throw new Error("Not enough usable POIs");
@@ -60,27 +61,16 @@ export async function GET(request: Request) {
   }
 }
 
-async function searchAmap(input: { key: string; city: CityName; kind: DecisionKind; interest: string; page: number }) {
+async function searchAmap(input: { key: string; city: CityName; kind: DecisionKind; interest: string; page: number; center: { lng: number; lat: number } | null }) {
   const cached = await withAmapCache<AmapPoi>(
-    { city: input.city, kind: input.kind, interest: input.interest, page: input.page },
+    { city: input.city, kind: input.kind, interest: input.interest, page: input.page, center: input.center },
     () => fetchAmapPois(input),
   );
   return { interest: input.interest, pois: cached.pois, fetchedAt: cached.fetchedAt };
 }
 
-async function fetchAmapPois(input: { key: string; city: CityName; kind: DecisionKind; interest: string; page: number }): Promise<AmapPoi[]> {
-  const params = new URLSearchParams({
-    key: input.key,
-    keywords: input.interest,
-    show_fields: "business,photos",
-    page_size: "6",
-    page_num: String(input.page),
-    output: "json",
-  });
-  if (input.kind === "dining") params.set("types", "050000");
-  params.set("region", `${input.city}市`);
-  params.set("city_limit", "true");
-  const response = await fetch(`https://restapi.amap.com/v5/place/text?${params}`, { signal: AbortSignal.timeout(9000) });
+async function fetchAmapPois(input: { key: string; city: CityName; kind: DecisionKind; interest: string; page: number; center: { lng: number; lat: number } | null }): Promise<AmapPoi[]> {
+  const response = await fetch(buildAmapPlaceSearchUrl(input), { signal: AbortSignal.timeout(9000) });
   if (!response.ok) return [];
   const payload = await response.json() as { status?: string; pois?: AmapPoi[] };
   return payload.status === "1" && Array.isArray(payload.pois) ? payload.pois : [];

@@ -193,6 +193,18 @@ test("the UI exposes consent-based location, city sync, and feedback-driven refr
   assert.doesNotMatch(page, /strategy: "learn"/);
 });
 
+test("the starting-boundary screen surfaces intersection failures instead of looking stuck", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /PreferenceSetupScreen[^]*error=\{roomError\}/);
+  assert.match(page, /props\.error && <p className="parse-error" role="alert">/);
+});
+
+test("the rejection reason sheet stays compact on desktop and mobile", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.rejection-sheet\{[^}]*width:min\(calc\(100% - 24px\),380px\)/);
+  assert.doesNotMatch(css, /@media\(max-width:420px\)\{\.rejection-sheet>div:not\(\.other-reason\)\{grid-template-columns:1fr\}/);
+});
+
 test("the UI keeps private rescue cards separate from the shared round", async () => {
   const [page, css, roomsRoute] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),

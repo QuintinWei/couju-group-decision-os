@@ -33,3 +33,8 @@ export function validateRejectionReasons(value: unknown, candidateIds: string[],
     return reason.detail === undefined || (typeof reason.detail === "string" && reason.detail.trim().length <= 120);
   });
 }
+
+export function sanitizeRejectionReasons(value: RejectionReasonRecord, candidateIds: string[], choices: Record<string, Choice>): RejectionReasonRecord {
+  const ids = new Set(candidateIds);
+  return Object.fromEntries(Object.entries(value).filter(([candidateId]) => ids.has(candidateId) && choices[candidateId] === "no"));
+}

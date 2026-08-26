@@ -7,7 +7,7 @@
  */
 
 export type CachedPlaceResult<T> = { pois: T[]; fetchedAt: string };
-export type AmapCacheKey = { city: string; kind: string; interest: string; page: number };
+export type AmapCacheKey = { city: string; kind: string; interest: string; page: number; center?: { lng: number; lat: number } | null };
 
 const CACHE_NAME = "couju-amap-place";
 const CACHE_TTL_SECONDS = 6 * 60 * 60;
@@ -34,6 +34,7 @@ export function amapCacheKeyUrl(key: AmapCacheKey) {
   url.searchParams.set("kind", key.kind);
   url.searchParams.set("interest", key.interest);
   url.searchParams.set("page", String(key.page));
+  if (key.center) url.searchParams.set("center", `${key.center.lng.toFixed(4)},${key.center.lat.toFixed(4)}`);
   return url.toString();
 }
 
