@@ -221,7 +221,9 @@ test("the room flow exposes round-aware recovery only after a shared round is co
   assert.match(page, /第 \{room\.currentRound\}\/3 轮/);
   assert.match(page, /人请求换一批/);
   assert.match(page, /根据全体反馈开启下一轮/);
-  assert.match(page, /没有交集，换一批继续选/);
+  assert.match(page, /没有交集，先补充每个人的发现/);
+  assert.match(page, /查看我的 3 张私人发现卡/);
+  assert.match(page, /张反馈学习 · 4 张新类型探索/);
   assert.match(page, /已经完成三轮探索/);
   assert.match(page, /确认开启下一轮/);
   assert.match(page, /调整我的边界/);

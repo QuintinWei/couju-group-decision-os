@@ -60,9 +60,10 @@ async function handlePrivateDiscovery(request: Request, auth: MemberAuth, expect
   if (!member) return error("成员身份已失效，请重新加入", 403);
 
   const candidateIds = room.candidates.map((candidate) => candidate.id);
-  const privateGate = evaluatePrivateDiscoveryGate(candidateIds, member.choices);
+  const submittedMembers = room.members.filter((item) => item.submittedAt);
+  const privateGate = evaluatePrivateDiscoveryGate(candidateIds, member.choices, submittedMembers.length === room.config.people ? submittedMembers.map((item) => item.choices) : []);
   if (!privateGate.ok) {
-    return error("只有拒绝本轮全部 12 张共享候选后，才能开启私人发现", 422);
+    return error("只有你拒绝全部候选，或全员提交后没有共同候选时，才能开启私人发现", 422);
   }
   if (member.privateCandidates.length === 3) {
     return Response.json({ ok: true, currentRound: room.currentRound, candidates: member.privateCandidates, reused: true }, { headers: noStore });
@@ -382,5 +383,6 @@ function advanceGateResponse(code: string, status: number) {
   if (code === "STALE_ROUND") return error("房间已进入下一轮，请刷新后继续", status);
   if (code === "MAX_ROUNDS") return error("已经是第三轮，无法继续换一批", status);
   if (code === "INCOMPLETE_MEMBERS") return error("所有已加入成员提交本轮选择后，房主才能换一批", status);
+  if (code === "INCOMPLETE_PRIVATE_DISCOVERY") return error("请等待每位成员完成私人提名或明确跳过", status);
   return error("本轮共享候选不完整，无法安全生成下一轮", status);
 }

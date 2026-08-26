@@ -24,6 +24,14 @@ test("private discovery gate requires all twelve rejections", () => {
   assert.deepEqual(evaluatePrivateDiscoveryGate(candidates.map((candidate) => candidate.id), { ...allNo, [candidates[0].id]: "okay" }), { ok: false, status: 422, code: "PRIVATE_INELIGIBLE" });
 });
 
+test("private discovery opens for each submitted member when group choices have no shared acceptable card", () => {
+  const ids = candidates.map((candidate) => candidate.id);
+  const first = Object.fromEntries(ids.map((id, index) => [id, index < 6 ? "no" : "like"]));
+  const second = Object.fromEntries(ids.map((id, index) => [id, index < 6 ? "like" : "no"]));
+  assert.deepEqual(evaluatePrivateDiscoveryGate(ids, first, [first, second]), { ok: true });
+  assert.equal(evaluatePrivateDiscoveryGate(ids, first, [first, { ...second, [ids[6]]: "okay" }]).ok, false);
+});
+
 test("generation failure does not invoke mutation", async () => {
   let mutated = false;
   const gate = evaluateAdvanceGate({ currentRound: 1, members: [submitted], candidates }, "creator", 1);

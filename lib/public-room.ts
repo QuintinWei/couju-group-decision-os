@@ -17,7 +17,7 @@ export type JoinRoomDto = {
   status: "open" | "full";
 };
 
-type PeerMember = Omit<StoredMember, "privateCandidates" | "nominatedCandidate" | "availability"> & { availabilitySubmitted: boolean };
+type PeerMember = Omit<StoredMember, "privateCandidates" | "nominatedCandidate" | "availability" | "rejectionReasons"> & { availabilitySubmitted: boolean };
 export type ParticipantRoomDto = Omit<StoredRoom, "members"> & { members: Array<StoredMember | PeerMember> };
 
 /**
@@ -49,10 +49,11 @@ export function toParticipantRoom(room: StoredRoom, memberId: string): Participa
     ...room,
     members: room.members.map((member) => {
       if (member.id === memberId) return member;
-      const { privateCandidates, nominatedCandidate, availability, ...peer } = member;
+      const { privateCandidates, nominatedCandidate, availability, rejectionReasons, ...peer } = member;
       void privateCandidates;
       void nominatedCandidate;
       void availability;
+      void rejectionReasons;
       return { ...peer, availabilitySubmitted: member.availability !== null };
     }),
   };

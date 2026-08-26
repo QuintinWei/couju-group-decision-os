@@ -6,6 +6,7 @@ import { hasSubmittedMembersAtAdvanceBoundary } from "./round-store-guard";
 import { validateMemberSubmission } from "./member-submission";
 import { randomRoomCode } from "./room-code";
 import { resolveGroupSchedule, type AvailabilityInterval, type ResolvedSchedule } from "./scheduling";
+import type { RejectionReasonRecord } from "./rejection-feedback";
 
 export type CandidateMeta = {
   mode: "live" | "demo";
@@ -35,6 +36,7 @@ export type StoredMember = {
   note: string;
   extraction: PreferenceExtraction | null;
   choices: Record<string, Choice>;
+  rejectionReasons: RejectionReasonRecord;
   submittedAt: string | null;
   availability: AvailabilityInterval[] | null;
   refreshRequestRound: number | null;
@@ -101,6 +103,7 @@ type MemberRow = {
   note: string | null;
   extraction_json: string | null;
   choices_json: string | null;
+  rejection_reasons_json?: string | null;
   submitted_at: string | null;
   availability_json?: string | null;
   refresh_request_round?: number | null;
@@ -155,7 +158,7 @@ export async function getStoredRoom(code: string): Promise<StoredRoom | null> {
   const db = getD1();
   const room = await db.prepare("SELECT * FROM rooms WHERE code = ? LIMIT 1").bind(code).first<RoomRow>();
   if (!room) return null;
-  const memberRows = await db.prepare("SELECT id, name, origin, origin_lng, origin_lat, budget_label, commute_label, setting, note, extraction_json, choices_json, submitted_at, availability_json, refresh_request_round, private_candidates_json, nominated_candidate_json FROM members WHERE room_code = ? ORDER BY created_at ASC").bind(code).all<MemberRow>();
+  const memberRows = await db.prepare("SELECT id, name, origin, origin_lng, origin_lat, budget_label, commute_label, setting, note, extraction_json, choices_json, rejection_reasons_json, submitted_at, availability_json, refresh_request_round, private_candidates_json, nominated_candidate_json FROM members WHERE room_code = ? ORDER BY created_at ASC").bind(code).all<MemberRow>();
   const scheduleConfig = safeJson<{ dateRange: RoomConfig["dateRange"]; preferredPeriods: RoomConfig["preferredPeriods"]; durationMinutes: RoomConfig["durationMinutes"] }>(room.schedule_config_json ?? null, { dateRange: { start: room.date, end: room.date }, preferredPeriods: ["evening"], durationMinutes: null });
   const resolvedSchedule = safeJson<ResolvedSchedule | null>(room.resolved_schedule_json ?? null, null);
   return {
@@ -186,6 +189,7 @@ export async function getStoredRoom(code: string): Promise<StoredRoom | null> {
       note: member.note || "",
       extraction: safeJson<PreferenceExtraction | null>(member.extraction_json, null),
       choices: safeJson<Record<string, Choice>>(member.choices_json, {}),
+      rejectionReasons: safeJson<RejectionReasonRecord>(member.rejection_reasons_json ?? null, {}),
       submittedAt: member.submitted_at,
       availability: safeJson<AvailabilityInterval[] | null>(member.availability_json ?? null, null),
       refreshRequestRound: member.refresh_request_round ?? null,
@@ -229,6 +233,7 @@ export async function updateStoredMember(input: {
   note: string;
   extraction: PreferenceExtraction | null;
   choices: Record<string, Choice>;
+  rejectionReasons: RejectionReasonRecord;
   expectedRound: number;
 }): Promise<{ ok: true } | { ok: false; code: "UNAUTHORIZED" | "STALE_ROUND" | "INVALID_CHOICES" | "INVALID_SHARED_CANDIDATES" }> {
   const db = getD1();
@@ -237,11 +242,11 @@ export async function updateStoredMember(input: {
   const room = await db.prepare("SELECT current_round, candidates_json FROM rooms WHERE code = ? LIMIT 1").bind(input.roomCode).first<{ current_round: number; candidates_json: string }>();
   if (!room || room.current_round !== input.expectedRound) return { ok: false, code: "STALE_ROUND" };
   const candidateIds = safeJson<Candidate[]>(room.candidates_json, []).map((candidate) => candidate.id);
-  const validation = validateMemberSubmission({ expectedRound: input.expectedRound, currentRound: room.current_round, candidateIds, choices: input.choices });
+  const validation = validateMemberSubmission({ expectedRound: input.expectedRound, currentRound: room.current_round, candidateIds, choices: input.choices, rejectionReasons: input.rejectionReasons });
   if (!validation.ok) return { ok: false, code: validation.code === "INVALID_SHARED_CANDIDATES" ? "INVALID_SHARED_CANDIDATES" : validation.code === "STALE_ROUND" ? "STALE_ROUND" : "INVALID_CHOICES" };
   const now = new Date().toISOString();
-  const updated = await db.prepare("UPDATE members SET budget_label = ?, commute_label = ?, setting = ?, note = ?, extraction_json = ?, choices_json = ?, submitted_at = ?, updated_at = ? WHERE id = ? AND room_code = ? AND EXISTS (SELECT 1 FROM rooms WHERE code = ? AND current_round = ?)")
-    .bind(input.budgetLabel, input.commuteLabel, input.setting, input.note, JSON.stringify(input.extraction), JSON.stringify(input.choices), now, now, input.memberId, input.roomCode, input.roomCode, input.expectedRound).run();
+  const updated = await db.prepare("UPDATE members SET budget_label = ?, commute_label = ?, setting = ?, note = ?, extraction_json = ?, choices_json = ?, rejection_reasons_json = ?, submitted_at = ?, updated_at = ? WHERE id = ? AND room_code = ? AND EXISTS (SELECT 1 FROM rooms WHERE code = ? AND current_round = ?)")
+    .bind(input.budgetLabel, input.commuteLabel, input.setting, input.note, JSON.stringify(input.extraction), JSON.stringify(input.choices), JSON.stringify(input.rejectionReasons), now, now, input.memberId, input.roomCode, input.roomCode, input.expectedRound).run();
   if ((updated.meta.changes ?? 0) !== 1) return { ok: false, code: "STALE_ROUND" };
   await db.prepare("UPDATE rooms SET updated_at = ? WHERE code = ? AND current_round = ?").bind(now, input.roomCode, input.expectedRound).run();
   return { ok: true };
@@ -254,6 +259,18 @@ export async function saveStoredMemberConstraints(input: MemberAuth & { budgetLa
   const updated = await getD1().prepare("UPDATE members SET budget_label = ?, commute_label = ?, setting = ?, updated_at = ? WHERE id = ? AND room_code = ?")
     .bind(input.budgetLabel, input.commuteLabel, input.setting, now, input.memberId, input.roomCode).run();
   return (updated.meta.changes ?? 0) === 1 ? { ok: true as const } : { ok: false as const, code: "UNAUTHORIZED" as const };
+}
+
+export async function relaxStoredMemberCommute(input: MemberAuth & { expectedRound: number; minutes: number }) {
+  const member = await authenticateMember(input);
+  if (!member) return { ok: false as const, code: "UNAUTHORIZED" as const };
+  if (!Number.isInteger(input.minutes) || input.minutes < 1 || input.minutes > 180) return { ok: false as const, code: "INVALID" as const };
+  const now = new Date().toISOString();
+  const updated = await getD1().prepare("UPDATE members SET commute_label = ?, updated_at = ? WHERE id = ? AND room_code = ? AND EXISTS (SELECT 1 FROM rooms WHERE code = ? AND current_round = ?)")
+    .bind(`≤ ${input.minutes} 分钟`, now, input.memberId, input.roomCode, input.roomCode, input.expectedRound).run();
+  if ((updated.meta.changes ?? 0) !== 1) return { ok: false as const, code: "STALE_ROUND" as const };
+  await getD1().prepare("UPDATE rooms SET updated_at = ? WHERE code = ? AND current_round = ?").bind(now, input.roomCode, input.expectedRound).run();
+  return { ok: true as const };
 }
 
 export async function replaceInitialCandidates(input: MemberAuth & { candidates: Candidate[]; meta: CandidateMeta }) {
@@ -389,7 +406,7 @@ export async function advanceStoredRound(input: MemberAuth & { expectedRound: nu
   const results = await db.batch([
     db.prepare("UPDATE rooms SET candidates_json = ?, candidate_meta_json = ?, current_round = ?, round_history_json = ?, updated_at = ? WHERE code = ? AND current_round = ? AND updated_at = ? AND (SELECT COUNT(*) FROM members WHERE room_code = ?) = (SELECT COUNT(*) FROM members WHERE room_code = ? AND submitted_at IS NOT NULL)")
       .bind(candidatesJson, metaJson, nextRound, historyJson, now, input.roomCode, input.expectedRound, room.updated_at, input.roomCode, input.roomCode),
-    db.prepare("UPDATE members SET choices_json = NULL, submitted_at = NULL, refresh_request_round = NULL, private_candidates_json = NULL, nominated_candidate_json = NULL, updated_at = ? WHERE room_code = ? AND EXISTS (SELECT 1 FROM rooms WHERE code = ? AND current_round = ? AND updated_at = ?)")
+    db.prepare("UPDATE members SET choices_json = NULL, rejection_reasons_json = NULL, submitted_at = NULL, refresh_request_round = NULL, private_candidates_json = NULL, nominated_candidate_json = NULL, updated_at = ? WHERE room_code = ? AND EXISTS (SELECT 1 FROM rooms WHERE code = ? AND current_round = ? AND updated_at = ?)")
       .bind(now, input.roomCode, input.roomCode, nextRound, now),
   ]);
   if ((results[0].meta.changes ?? 0) !== 1) return { ok: false, code: "STALE_ROUND" };
@@ -421,8 +438,8 @@ async function readRoomRound(roomCode: string): Promise<RoomRoundRow | null> {
 }
 
 async function readRoundMembers(roomCode: string) {
-  const rows = await getD1().prepare("SELECT id, origin_lng, origin_lat, budget_label, commute_label, setting, extraction_json, choices_json, private_candidates_json, nominated_candidate_json, submitted_at FROM members WHERE room_code = ? ORDER BY created_at ASC")
-    .bind(roomCode).all<Pick<MemberRow, "id" | "origin_lng" | "origin_lat" | "budget_label" | "commute_label" | "setting" | "extraction_json" | "choices_json" | "private_candidates_json" | "nominated_candidate_json" | "submitted_at">>();
+  const rows = await getD1().prepare("SELECT id, origin_lng, origin_lat, budget_label, commute_label, setting, extraction_json, choices_json, rejection_reasons_json, private_candidates_json, nominated_candidate_json, submitted_at FROM members WHERE room_code = ? ORDER BY created_at ASC")
+    .bind(roomCode).all<Pick<MemberRow, "id" | "origin_lng" | "origin_lat" | "budget_label" | "commute_label" | "setting" | "extraction_json" | "choices_json" | "rejection_reasons_json" | "private_candidates_json" | "nominated_candidate_json" | "submitted_at">>();
   return rows.results.map((member) => ({
     id: member.id,
     originLocation: member.origin_lng !== null && member.origin_lat !== null ? { lng: member.origin_lng, lat: member.origin_lat } : null,
@@ -431,6 +448,7 @@ async function readRoundMembers(roomCode: string) {
     setting: member.setting || "都可以",
     extraction: safeJson<PreferenceExtraction | null>(member.extraction_json, null),
     choices: safeJson<Record<string, Choice>>(member.choices_json, {}),
+    rejectionReasons: safeJson<RejectionReasonRecord>(member.rejection_reasons_json ?? null, {}),
     privateCandidates: safeJson<Candidate[]>(member.private_candidates_json ?? null, []),
     nominatedCandidate: safeJson<Candidate | null>(member.nominated_candidate_json ?? null, null),
     submittedAt: member.submitted_at,

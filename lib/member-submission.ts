@@ -1,4 +1,5 @@
 import type { Choice } from "./couju.ts";
+import { validateRejectionReasons } from "./rejection-feedback.ts";
 
 export type SubmissionValidationResult =
   | { ok: true }
@@ -9,6 +10,7 @@ export function validateMemberSubmission(input: {
   currentRound: number;
   candidateIds: string[];
   choices: unknown;
+  rejectionReasons?: unknown;
 }): SubmissionValidationResult {
   if (typeof input.expectedRound !== "number" || !Number.isInteger(input.expectedRound) || input.expectedRound < 1 || input.expectedRound > 3) {
     return { ok: false, code: "MALFORMED" };
@@ -21,6 +23,7 @@ export function validateMemberSubmission(input: {
   if (entries.length !== 12 || entries.some(([id, value]) => !expected.has(id) || (value !== "like" && value !== "okay" && value !== "no"))) {
     return { ok: false, code: "INVALID_CHOICES" };
   }
+  if (!validateRejectionReasons(input.rejectionReasons, input.candidateIds, input.choices as Record<string, Choice>)) return { ok: false, code: "INVALID_CHOICES" };
   return { ok: true };
 }
 

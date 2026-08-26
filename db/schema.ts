@@ -35,6 +35,7 @@ export const members = sqliteTable("members", {
   note: text("note"),
   extractionJson: text("extraction_json"),
   choicesJson: text("choices_json"),
+  rejectionReasonsJson: text("rejection_reasons_json"),
   submittedAt: text("submitted_at"),
   availabilityJson: text("availability_json"),
   refreshRequestRound: integer("refresh_request_round"),

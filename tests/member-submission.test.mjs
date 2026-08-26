@@ -6,7 +6,11 @@ const candidateIds = Array.from({ length: 12 }, (_, index) => `candidate-${index
 const exactChoices = Object.fromEntries(candidateIds.map((id, index) => [id, index % 3 === 0 ? "like" : index % 3 === 1 ? "okay" : "no"]));
 
 test("a valid submission names the current round and rates exactly all twelve candidates", () => {
-  assert.deepEqual(validateMemberSubmission({ expectedRound: 2, currentRound: 2, candidateIds, choices: exactChoices }), { ok: true });
+  assert.deepEqual(validateMemberSubmission({ expectedRound: 2, currentRound: 2, candidateIds, choices: exactChoices, rejectionReasons: { [candidateIds[2]]: { code: "distance" } } }), { ok: true });
+});
+
+test("submission rejects a reason attached to a non-rejected card", () => {
+  assert.deepEqual(validateMemberSubmission({ expectedRound: 2, currentRound: 2, candidateIds, choices: exactChoices, rejectionReasons: { [candidateIds[0]]: { code: "category" } } }), { ok: false, code: "INVALID_CHOICES" });
 });
 
 test("a stale tab cannot submit choices for a later room round", () => {

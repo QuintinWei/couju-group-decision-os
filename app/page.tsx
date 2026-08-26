@@ -24,10 +24,11 @@ import { requestBrowserPosition } from "../lib/browser-location";
 import { synchronizeDetectedLocation } from "../lib/location-sync";
 import type { StoredMember, StoredRoom } from "../lib/room-store";
 import type { JoinRoomDto } from "../lib/public-room";
-import { diagnoseRoundConflict } from "../lib/rounds";
+import { diagnoseRoundConflict, suggestMinimumCommuteRelaxation } from "../lib/rounds";
 import { getPreferenceEntryStage, getRefreshRequestControl, getRoundControlVisibility, reconcileAuthoritativeRound } from "../lib/round-client-state";
 import { getRoomReadiness } from "../lib/room-readiness";
 import { canRequestPrivateDiscovery, privateDiscoveryFailure, privateDiscoveryRequestPlan, privateNominationAction, togglePrivateNomination, type RoundClientAction } from "../lib/private-discovery-flow";
+import { rejectionReasonOptions, type RejectionReasonCode, type RejectionReasonRecord } from "../lib/rejection-feedback";
 
 type CandidateMeta = { mode: DataMode; label: string; fetchedAt: string; disclaimer?: string; keywords?: string[]; avoid?: string[]; page?: number; center?: GeoPoint | null; seed?: string; focused?: boolean; strategy?: "explore" | "focused" | "learn" | "private"; commuteWindow?: string; groupIntersection?: boolean };
 type AiExplanation = { headline: string; reasoning: string; tradeoff: string };
@@ -114,6 +115,8 @@ export default function Home() {
   const [vetoTarget, setVetoTarget] = useState<RankedCandidate | null>(null);
   const [cardIndex, setCardIndex] = useState(0);
   const [swipes, setSwipes] = useState<Record<string, Choice>>({});
+  const [rejectionReasons, setRejectionReasons] = useState<RejectionReasonRecord>({});
+  const [pendingRejectionId, setPendingRejectionId] = useState<string | null>(null);
   const [budget, setBudget] = useState("≤ ¥150");
   const [commute, setCommute] = useState("≤ 60 分钟");
   const [setting, setSetting] = useState("都可以");
@@ -172,7 +175,7 @@ export default function Home() {
       knownRoundRef.current = payload.room.currentRound;
       setRoom(payload.room); setConfig(payload.room.config); setCandidates(payload.room.candidates); setCandidateMeta(payload.room.meta); setRoomError("");
       if (roundTransition.resetRoundScopedState) {
-        setCardIndex(0); setSwipes({}); setPrivateCandidates([]); setPrivateNominationId(null); setPrivateError("");
+        setCardIndex(0); setSwipes({}); setRejectionReasons({}); setPendingRejectionId(null); setPrivateCandidates([]); setPrivateNominationId(null); setPrivateError("");
         setRankingStep(0); setAiExplanation(null); setVetoOpen(false); setVetoTarget(null); setExcludedIds([]); setAppliedVetoReason(""); setLockedResult(null); setAdvanceConfirmOpen(false);
         if (roundTransition.nextStage) setStage(roundTransition.nextStage);
         setToast(`房间已进入第 ${payload.room.currentRound}/3 轮，请重新选择这 12 张卡`);
@@ -339,11 +342,22 @@ export default function Home() {
     finally { setSyncing(false); }
   };
 
+  const advanceCard = () => {
+    if (cardIndex === candidates.length - 1) setStage("constraints"); else setCardIndex((value) => value + 1);
+  };
+
   const chooseCard = (choice: Choice) => {
     const current = candidates[cardIndex];
     if (!current) return;
     setSwipes((old) => ({ ...old, [current.id]: choice }));
-    if (cardIndex === candidates.length - 1) setStage("constraints"); else setCardIndex((value) => value + 1);
+    if (choice === "no") setPendingRejectionId(current.id);
+    else advanceCard();
+  };
+
+  const finishRejection = (code: RejectionReasonCode | null, detail = "") => {
+    if (pendingRejectionId && code) setRejectionReasons((old) => ({ ...old, [pendingRejectionId]: { code, ...(detail.trim() ? { detail: detail.trim().slice(0, 120) } : {}) } }));
+    setPendingRejectionId(null);
+    advanceCard();
   };
 
   const saveCurrentChoices = async () => {
@@ -351,7 +365,7 @@ export default function Home() {
     const response = await fetch("/api/members", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomCode, memberId: identity.id, token: identity.token, expectedRound: room?.currentRound, budgetLabel: budget, commuteLabel: commute, setting, note, extraction, choices: swipes }),
+      body: JSON.stringify({ roomCode, memberId: identity.id, token: identity.token, expectedRound: room?.currentRound, budgetLabel: budget, commuteLabel: commute, setting, note, extraction, choices: swipes, rejectionReasons }),
     });
     const payload = await response.json() as { error?: string };
     if (!response.ok) throw new Error(payload.error || "提交失败");
@@ -386,6 +400,18 @@ export default function Home() {
     }
   };
 
+  const acceptCommuteRelaxation = async (minutes: number) => {
+    if (!identity || !room) return;
+    setSyncing(true); setRoomError("");
+    try {
+      const response = await fetch("/api/members", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "relax-commute", roomCode, memberId: identity.id, token: identity.token, expectedRound: room.currentRound, minutes }) });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "调整失败");
+      await refreshRoom(roomCode, true); setCommute(`≤ ${minutes} 分钟`); setToast(`已确认本轮通勤上限为 ${minutes} 分钟`); setStage("room");
+    } catch (error) { setRoomError(error instanceof Error ? error.message : "调整失败"); }
+    finally { setSyncing(false); }
+  };
+
   const advanceRound = async () => {
     if (!room) return;
     setAdvanceLoading(true); setRoomError("");
@@ -393,7 +419,7 @@ export default function Home() {
       await postRoundAction({ action: "advance" });
       const nextRoom = await refreshRoom(roomCode, true);
       if (!nextRoom || nextRoom.currentRound !== room.currentRound + 1) throw new Error("下一轮已生成，但房间状态未能刷新，请稍后重试");
-      setCardIndex(0); setSwipes({}); setPrivateCandidates([]); setPrivateNominationId(null); setPrivateError("");
+      setCardIndex(0); setSwipes({}); setRejectionReasons({}); setPendingRejectionId(null); setPrivateCandidates([]); setPrivateNominationId(null); setPrivateError("");
       setAdvanceConfirmOpen(false); setStage("room");
       setToast(`第 ${nextRoom.currentRound}/3 轮已开启，所有人重新选择这 12 张卡`);
     } catch (error) {
@@ -413,7 +439,7 @@ export default function Home() {
     setPrivateActionLoading(true); setPrivateError(""); setParseError("");
     try {
       const [first, request, discovery] = privateDiscoveryRequestPlan();
-      if (first === "save-choices") await saveCurrentChoices();
+      if (first === "save-choices" && !currentMember?.submittedAt) await saveCurrentChoices();
       await postRoundAction(request);
       const payload = await postRoundAction(discovery);
       if (!Array.isArray(payload.candidates) || payload.candidates.length !== 3) throw new Error("私人发现未能返回三张候选，请重试");
@@ -505,16 +531,16 @@ export default function Home() {
     {stage === "create" && <CreateScreen config={config} creatorName={creatorName} creatorOrigin={creatorOrigin} creatorLocation={creatorLocation} locationStatus={locationStatus} locating={locating} ideaMode={ideaMode} selectedInterests={selectedInterests} avoid={avoid} setCreatorName={setCreatorName} setCreatorOrigin={(value) => { setCreatorOrigin(value); setCreatorLocation(null); setLocationStatus("输入后会识别地铁站或商圈，并用于通勤估算"); }} setIdeaMode={setIdeaMode} setSelectedInterests={setSelectedInterests} setAvoid={setAvoid} onLocate={useCurrentLocation} error={roomError} onChange={updateConfig} onBack={() => setStage("home")} onCreate={createRoom} loading={candidateLoading} />}
     {stage === "join" && joinRoomSummary && <JoinScreen room={joinRoomSummary} loading={syncing} error={roomError} onJoin={joinRoom} />}
     {stage === "availability" && room && <AvailabilityScreen config={room.config} selected={availableSlots} setSelected={setAvailableSlots} loading={syncing} error={roomError} onSubmit={submitAvailability} />}
-    {stage === "room" && room && <RoomScreen room={room} currentMember={currentMember} syncing={syncing} error={roomError} onShare={copyShare} onPreference={() => { setCardIndex(0); setSwipes(currentMember?.choices ?? {}); setBudget(currentMember?.budgetLabel || budget); setCommute(currentMember?.commuteLabel || commute); setSetting(currentMember?.setting || setting); setNote(currentMember?.note || ""); setExtraction(currentMember?.extraction ?? null); setPrivateCandidates([]); setPrivateNominationId(null); setPrivateError(""); setStage(getPreferenceEntryStage({ currentRound: room.currentRound, constraintsReady: Boolean(currentMember?.constraintsReady), groupIntersection: room.meta.groupIntersection })); }} onRank={startRanking} onRequestNextRound={requestNextRound} onOpenAdvance={() => setAdvanceConfirmOpen(true)} />}
+    {stage === "room" && room && <RoomScreen room={room} currentMember={currentMember} syncing={syncing} error={roomError} onShare={copyShare} onPreference={() => { setCardIndex(0); setSwipes(currentMember?.choices ?? {}); setRejectionReasons(currentMember?.rejectionReasons ?? {}); setBudget(currentMember?.budgetLabel || budget); setCommute(currentMember?.commuteLabel || commute); setSetting(currentMember?.setting || setting); setNote(currentMember?.note || ""); setExtraction(currentMember?.extraction ?? null); setPrivateCandidates([]); setPrivateNominationId(null); setPrivateError(""); setStage(getPreferenceEntryStage({ currentRound: room.currentRound, constraintsReady: Boolean(currentMember?.constraintsReady), groupIntersection: room.meta.groupIntersection })); }} onRank={startRanking} onRequestNextRound={requestNextRound} onOpenAdvance={() => setAdvanceConfirmOpen(true)} />}
     {stage === "setup" && <PreferenceSetupScreen config={config} budget={budget} commute={commute} setting={setting} setBudget={setBudget} setCommute={setCommute} setSetting={setSetting} onBack={() => setStage("room")} onContinue={saveStartingConstraints} loading={syncing} />}
-    {stage === "swipe" && <SwipeScreen config={config} cards={candidates} index={cardIndex} choices={swipes} travelMinutes={estimateTravelBetween(currentMember?.originLocation ?? null, candidates[cardIndex]?.location ?? null) ?? candidates[cardIndex]?.estimatedTravelMinutes ?? null} onChoose={chooseCard} onBack={() => setStage("setup")} onPointerDown={(x) => { pointerStart.current = x; }} onPointerUp={(x) => { if (pointerStart.current === null) return; const delta = x - pointerStart.current; if (delta > 65) chooseCard("like"); else if (delta < -65) chooseCard("no"); pointerStart.current = null; }} />}
+    {stage === "swipe" && <SwipeScreen config={config} cards={candidates} index={cardIndex} choices={swipes} pendingRejection={Boolean(pendingRejectionId)} travelMinutes={estimateTravelBetween(currentMember?.originLocation ?? null, candidates[cardIndex]?.location ?? null) ?? candidates[cardIndex]?.estimatedTravelMinutes ?? null} onChoose={chooseCard} onRejection={finishRejection} onBack={() => setStage("setup")} onPointerDown={(x) => { pointerStart.current = x; }} onPointerUp={(x) => { if (pointerStart.current === null || pendingRejectionId) return; const delta = x - pointerStart.current; if (delta > 65) chooseCard("like"); else if (delta < -65) chooseCard("no"); pointerStart.current = null; }} />}
     {stage === "constraints" && <PreferenceDetailsScreen config={config} note={note} extraction={extraction} loading={parseLoading} submitting={syncing} error={parseError} allRejected={canRequestPrivateDiscovery(candidates, swipes)} privateLoading={privateActionLoading} setNote={(value) => { setNote(value); setExtraction(null); }} onParse={parsePreference} onRemoveSignal={removeSignal} onBack={() => setStage("swipe")} onConfirm={confirmConstraints} onRequestPrivate={requestPrivateDiscovery} />}
     {stage === "private-discovery" && room && currentMember && <PrivateDiscoveryScreen config={config} cards={privateCandidates} selectedId={privateNominationId} member={currentMember} loading={privateActionLoading} error={privateError} onSelect={setPrivateNominationId} onSubmit={() => submitPrivateNomination(privateNominationId)} onSkip={() => submitPrivateNomination(null)} onBack={() => setStage("constraints")} />}
     {stage === "ranking" && <RankingScreen config={config} step={rankingStep} candidates={candidates} ranked={ranked} meta={candidateMeta} />}
-    {stage === "results" && room && <ResultsScreen config={config} room={room} currentMember={currentMember} ranked={ranked} meta={candidateMeta} members={readyMembers} aiExplanation={aiExplanation} error={roomError} advancing={advanceLoading} onVeto={(selected) => { setVetoTarget(selected); setVetoOpen(true); }} onLock={(selected) => { setLockedResult(selected); setStage("locked"); }} onAdjust={() => setStage("setup")} onDiscuss={() => setStage("room")} onRequestNextRound={requestNextRound} onOpenAdvance={() => setAdvanceConfirmOpen(true)} />}
+    {stage === "results" && room && <ResultsScreen config={config} room={room} currentMember={currentMember} ranked={ranked} meta={candidateMeta} members={readyMembers} aiExplanation={aiExplanation} error={roomError} advancing={advanceLoading} privateLoading={privateActionLoading} onPrivateDiscovery={requestPrivateDiscovery} onAcceptCommute={acceptCommuteRelaxation} onVeto={(selected) => { setVetoTarget(selected); setVetoOpen(true); }} onLock={(selected) => { setLockedResult(selected); setStage("locked"); }} onAdjust={() => setStage("setup")} onDiscuss={() => setStage("room")} onRequestNextRound={requestNextRound} onOpenAdvance={() => setAdvanceConfirmOpen(true)} />}
     {stage === "locked" && (lockedResult || mainResult) && <LockedScreen config={config} result={(lockedResult || mainResult)!} onCalendar={addCalendar} onReset={resetSession} onShare={copyShare} />}
     {vetoOpen && <div className="modal-backdrop"><button className="modal-dismiss-layer" onClick={() => setVetoOpen(false)} aria-label="关闭否决弹窗" /><section className="veto-modal" role="dialog" aria-modal="true" aria-labelledby="veto-title"><button className="modal-close" onClick={() => setVetoOpen(false)} aria-label="关闭">×</button><span className="modal-icon">!</span><h2 id="veto-title">什么让你无法接受？</h2><p>当前方案会被排除，所选原因会进入下一轮确定性重排。</p><div className="reason-grid">{vetoReasons.map((reason) => <button key={reason} className={vetoReason === reason ? "selected" : ""} onClick={() => setVetoReason(reason)}>{reason}</button>)}</div><button className="full-dark-button" onClick={applyVeto}>加入本轮约束并重排 <span>→</span></button></section></div>}
-    {advanceConfirmOpen && room && <div className="modal-backdrop"><button className="modal-dismiss-layer" onClick={() => !advanceLoading && setAdvanceConfirmOpen(false)} aria-label="关闭开启下一轮确认" /><section className="advance-modal" role="dialog" aria-modal="true" aria-labelledby="advance-title"><button className="modal-close" onClick={() => !advanceLoading && setAdvanceConfirmOpen(false)} aria-label="关闭">×</button><span className="modal-icon">↻</span><h2 id="advance-title">确认开启下一轮？</h2><p>会保留所有人的预算、通勤和已确认偏好；本轮 12 张卡的选择会重置，并按全体反馈生成新卡。</p><div className="advance-modal-note"><b>第 {room.currentRound + 1}/3 轮</b><span>至少 4 张探索卡，私人提名会进入共享评选。</span></div><button className="full-dark-button" onClick={advanceRound} disabled={advanceLoading}>{advanceLoading ? "正在生成下一轮…" : "根据全体反馈开启下一轮"} <span>→</span></button></section></div>}
+    {advanceConfirmOpen && room && <div className="modal-backdrop"><button className="modal-dismiss-layer" onClick={() => !advanceLoading && setAdvanceConfirmOpen(false)} aria-label="关闭开启下一轮确认" /><section className="advance-modal" role="dialog" aria-modal="true" aria-labelledby="advance-title"><button className="modal-close" onClick={() => !advanceLoading && setAdvanceConfirmOpen(false)} aria-label="关闭">×</button><span className="modal-icon">↻</span><h2 id="advance-title">确认开启下一轮？</h2><p>会保留预算、通勤和已确认偏好；明确拒绝的地点不会重复出现。</p><div className="advance-modal-note"><b>下一轮 12 张卡</b><span>{room.members.filter((member) => member.nominatedCandidate).length} 张成员提名 · {8 - Math.min(8, room.members.filter((member) => member.nominatedCandidate).length)} 张反馈学习 · 4 张新类型探索</span></div><button className="full-dark-button" onClick={advanceRound} disabled={advanceLoading}>{advanceLoading ? "正在生成下一轮…" : "汇总提名与反馈，开启下一轮"} <span>→</span></button></section></div>}
     {toast && <div className="toast" role="status"><span>✓</span>{toast}</div>}
   </main>;
 }
@@ -642,9 +668,11 @@ function PreferenceSetupScreen(props: { config: RoomConfig; budget: string; comm
   return <section className="flow-page constraints-page"><button className="back-button" onClick={props.onBack}>← 返回房间</button><ScreenTitle eyebrow="YOUR STARTING POINT" title="先设定你的选择边界" detail="预算和通勤会先提交；全员完成后，系统只生成每个人都可达的共享卡片。" /><div className="constraint-layout preference-setup-layout"><div className="constraint-card"><div className="constraint-label"><span>01</span><div><b>人均预算</b><small>超过上限的已知价格候选不会进入最终结果</small></div></div><ChipGroup label="人均预算" values={dining ? ["≤ ¥100", "≤ ¥150", "≤ ¥200", "不限"] : ["≤ ¥100", "≤ ¥200", "≤ ¥300", "不限"]} selected={props.budget} onSelect={props.setBudget} /><div className="constraint-label"><span>02</span><div><b>最远单程通勤</b><small>从你的出发地到每个候选分别计算，并与其他成员求交集</small></div></div><ChipGroup label="最远单程通勤" values={["≤ 30 分钟", "≤ 60 分钟", "≤ 1.5 小时", "不限"]} selected={props.commute} onSelect={props.setCommute} /><div className="constraint-label"><span>03</span><div><b>{dining ? "用餐氛围" : "场景偏好"}</b><small>这是软偏好，只影响卡片顺序和最终得分</small></div></div><ChipGroup label={dining ? "用餐氛围" : "场景偏好"} values={dining ? ["安静聊天", "热闹聚会", "都可以"] : ["室内优先", "户外优先", "都可以"]} selected={props.setting} onSelect={props.setSetting} /></div></div><button className="confirm-preference" disabled={props.loading} onClick={props.onContinue}>{props.loading ? "正在计算多人可达交集…" : "提交我的选择边界"} <span>→</span></button></section>;
 }
 
-function SwipeScreen({ config, cards, index, choices, travelMinutes, onChoose, onBack, onPointerDown, onPointerUp }: { config: RoomConfig; cards: Candidate[]; index: number; choices: Record<string, Choice>; travelMinutes: number | null; onChoose: (choice: Choice) => void; onBack: () => void; onPointerDown: (x: number) => void; onPointerUp: (x: number) => void }) {
+function SwipeScreen({ config, cards, index, choices, pendingRejection, travelMinutes, onChoose, onRejection, onBack, onPointerDown, onPointerUp }: { config: RoomConfig; cards: Candidate[]; index: number; choices: Record<string, Choice>; pendingRejection: boolean; travelMinutes: number | null; onChoose: (choice: Choice) => void; onRejection: (reason: RejectionReasonCode | null, detail?: string) => void; onBack: () => void; onPointerDown: (x: number) => void; onPointerUp: (x: number) => void }) {
+  const [otherOpen, setOtherOpen] = useState(false); const [otherReason, setOtherReason] = useState("");
   const card = cards[index]; if (!card) return null;
-  return <section className="flow-page swipe-page"><div className="mobile-frame"><div className="mobile-top"><button onClick={onBack} aria-label="返回选择边界">×</button><span>{config.kind === "dining" ? "你的餐厅偏好" : "你的活动偏好"}</span><b>{index + 1}<small> / {cards.length}</small></b></div><div className="progress-line"><i style={{ width: `${((index + 1) / cards.length) * 100}%` }} /></div><div className="swipe-prompt"><span>边选边发现，不要求提前想好</span><h2>{config.kind === "dining" ? "这家，你想和朋友一起吃吗？" : "这个周末，你想去吗？"}</h2><p>喜欢与拒绝会影响下一批候选</p></div><div className="card-stack"><div className="ghost-card ghost-two" /><div className="ghost-card ghost-one" /><button className="swipe-card photo-card" onPointerDown={(event) => onPointerDown(event.clientX)} onPointerUp={(event) => onPointerUp(event.clientX)} onKeyDown={(event) => { if (event.key === "ArrowRight") onChoose("like"); if (event.key === "ArrowLeft") onChoose("no"); }} aria-label={`${card.name}，左方向键不想去，右方向键喜欢`}><div className="activity-art"><img src={card.image} alt={card.name} draggable={false} referrerPolicy="no-referrer" /><div className="image-shade" /><span className="category-chip">{card.matchedInterest || card.type}</span><i>{card.source.mode === "live" ? "高德地点" : "演示候选"}</i></div><div className="activity-info"><span>{card.source.label}</span><h3>{card.name}</h3><p>{card.priceLabel} · {card.durationLabel} · {card.meta}</p><div><small>{card.rating ? `评分 ${card.rating.toFixed(1)}` : "评分待确认"}</small><small>{travelMinutes ? `从你的位置通勤约 ${travelMinutes} 分钟` : "通勤待确认"}</small><small>{card.openToday ? `今日 ${card.openToday}` : "营业/可订需确认"}</small></div></div></button></div><div className="swipe-actions"><button className="no" onClick={() => onChoose("no")} aria-label="不想去">×<small>不想去</small></button><button className="okay" onClick={() => onChoose("okay")} aria-label="还行">−<small>还行</small></button><button className="yes" onClick={() => onChoose("like")} aria-label="喜欢">♥<small>喜欢</small></button></div><p className="gesture-hint">← 左滑排除 · 右滑提高个人效用 →</p><div className="choice-history" aria-label={`${Object.keys(choices).length} 张卡已完成`} /></div></section>;
+  const finish = (code: RejectionReasonCode | null, detail = "") => { setOtherOpen(false); setOtherReason(""); onRejection(code, detail); };
+  return <section className="flow-page swipe-page"><div className="mobile-frame"><div className="mobile-top"><button onClick={onBack} aria-label="返回选择边界">×</button><span>{config.kind === "dining" ? "你的餐厅偏好" : "你的活动偏好"}</span><b>{index + 1}<small> / {cards.length}</small></b></div><div className="progress-line"><i style={{ width: `${((index + 1) / cards.length) * 100}%` }} /></div><div className="swipe-prompt"><span>边选边发现，不要求提前想好</span><h2>{config.kind === "dining" ? "这家，你想和朋友一起吃吗？" : "这个周末，你想去吗？"}</h2><p>喜欢与拒绝会影响下一批候选</p></div><div className="card-stack"><div className="ghost-card ghost-two" /><div className="ghost-card ghost-one" /><button className="swipe-card photo-card" disabled={pendingRejection} onPointerDown={(event) => onPointerDown(event.clientX)} onPointerUp={(event) => onPointerUp(event.clientX)} onKeyDown={(event) => { if (event.key === "ArrowRight") onChoose("like"); if (event.key === "ArrowLeft") onChoose("no"); }} aria-label={`${card.name}，左方向键不想去，右方向键喜欢`}><div className="activity-art"><img src={card.image} alt={card.name} draggable={false} referrerPolicy="no-referrer" /><div className="image-shade" /><span className="category-chip">{card.matchedInterest || card.type}</span><i>{card.source.mode === "live" ? "高德地点" : "演示候选"}</i></div><div className="activity-info"><span>{card.source.label}</span><h3>{card.name}</h3><p>{card.priceLabel} · {card.durationLabel} · {card.meta}</p><div><small>{card.rating ? `评分 ${card.rating.toFixed(1)}` : "评分待确认"}</small><small>{travelMinutes ? `从你的位置通勤约 ${travelMinutes} 分钟` : "通勤待确认"}</small><small>{card.openToday ? `今日 ${card.openToday}` : "营业/可订需确认"}</small></div></div></button></div><div className="swipe-actions"><button className="no" disabled={pendingRejection} onClick={() => onChoose("no")} aria-label="不想去">×<small>不想去</small></button><button className="okay" disabled={pendingRejection} onClick={() => onChoose("okay")} aria-label="还行">−<small>还行</small></button><button className="yes" disabled={pendingRejection} onClick={() => onChoose("like")} aria-label="喜欢">♥<small>喜欢</small></button></div><p className="gesture-hint">← 左滑排除 · 右滑提高个人效用 →</p><div className="choice-history" aria-label={`${Object.keys(choices).length} 张卡已完成`} /></div>{pendingRejection && <div className="rejection-sheet" role="dialog" aria-label="为什么不喜欢"><b>主要是哪里不合适？</b><small>可跳过，不会打断选卡</small><div>{rejectionReasonOptions(config.kind).map((item) => <button key={item.code} onClick={() => finish(item.code)}>{item.label}</button>)}</div>{otherOpen ? <div className="other-reason"><input autoFocus maxLength={120} value={otherReason} onChange={(event) => setOtherReason(event.target.value)} placeholder="一句话补充，可选" /><button onClick={() => finish("other", otherReason)} disabled={!otherReason.trim()}>提交</button></div> : <button className="other-reason-trigger" onClick={() => setOtherOpen(true)}>其他原因</button>}<button className="skip-reason" onClick={() => finish(null)}>跳过原因，下一张</button></div>}</section>;
 }
 
 function ChipGroup({ label, values, selected, onSelect }: { label: string; values: string[]; selected: string; onSelect: (value: string) => void }) { return <div className="chip-group" role="group" aria-label={label}>{values.map((value) => <button key={value} className={selected === value ? "selected" : ""} onClick={() => onSelect(value)}>{value}</button>)}</div>; }
@@ -669,7 +697,7 @@ function RankingScreen({ config, step, candidates, ranked, meta }: { config: Roo
   return <section className="flow-page ranking-page"><div className="ranking-orbit"><span className="pulse-core">凑</span><i className="orbit-one" /><i className="orbit-two" /></div><div className="ranking-copy"><span>FAIR GROUP DECISION ENGINE</span><h1>正在计算大家的真实交集</h1><p>先保护每个人的底线，再从 Pareto 前沿中寻找 Nash 群体福利最高的方案。</p></div><div className="ranking-funnel">{rows.map((row, index) => <div key={row.title} className={step > index ? "done" : step === index ? "active" : ""}><span>{step > index ? "✓" : index + 1}</span><strong>{step > index || step === index ? row.n : "—"}</strong><section><b>{row.title}</b><small>{row.detail}</small></section><em>{step > index ? "完成" : step === index ? "计算中" : "等待"}</em></div>)}</div><div className="ranking-privacy">⌾ 本轮只包含 {memberCount} 位已提交成员，没有虚拟样本</div></section>;
 }
 
-function ResultsScreen({ config, room, currentMember, ranked, meta, members, aiExplanation, error, advancing, onVeto, onLock, onAdjust, onDiscuss, onRequestNextRound, onOpenAdvance }: { config: RoomConfig; room: StoredRoom; currentMember: StoredMember | null; ranked: RankedCandidate[]; meta: CandidateMeta; members: StoredMember[]; aiExplanation: AiExplanation | null; error: string; advancing: boolean; onVeto: (selected: RankedCandidate) => void; onLock: (selected: RankedCandidate) => void; onAdjust: () => void; onDiscuss: () => void; onRequestNextRound: () => void; onOpenAdvance: () => void }) {
+function ResultsScreen({ config, room, currentMember, ranked, meta, members, aiExplanation, error, advancing, privateLoading, onPrivateDiscovery, onAcceptCommute, onVeto, onLock, onAdjust, onDiscuss, onRequestNextRound, onOpenAdvance }: { config: RoomConfig; room: StoredRoom; currentMember: StoredMember | null; ranked: RankedCandidate[]; meta: CandidateMeta; members: StoredMember[]; aiExplanation: AiExplanation | null; error: string; advancing: boolean; privateLoading: boolean; onPrivateDiscovery: () => void; onAcceptCommute: (minutes: number) => void; onVeto: (selected: RankedCandidate) => void; onLock: (selected: RankedCandidate) => void; onAdjust: () => void; onDiscuss: () => void; onRequestNextRound: () => void; onOpenAdvance: () => void }) {
   const main = ranked[0];
   const allSubmitted = room.members.length > 0 && room.members.every((member) => Boolean(member.submittedAt));
   const controls = getRoundControlVisibility({ currentRound: room.currentRound, creatorId: room.members[0]?.id, memberId: currentMember?.id, allSubmitted, submitted: Boolean(currentMember?.submittedAt) });
@@ -679,7 +707,8 @@ function ResultsScreen({ config, room, currentMember, ranked, meta, members, aiE
   const canAdvance = controls.canAdvance;
   if (!main) {
     const reasons = room.currentRound >= 3 ? diagnoseRoundConflict(room.candidates, room.members, config).slice(0, 2) : [];
-    return <section className="flow-page results-page no-solution"><span className="no-solution-icon">∅</span><h1>{room.currentRound >= 3 ? "已经完成三轮探索" : "没有交集，换一批继续选"}</h1><p>{room.currentRound >= 3 ? "系统不会强行给出一个不合适的答案。下面是本轮最影响交集的边界。" : "系统没有强行生成 Top 1；保留已确认的边界和反馈，下一轮会换成新的共享卡池。"}</p>{room.currentRound >= 3 ? <div className="conflict-panel" role="status"><b>本轮冲突诊断</b>{reasons.length ? <ul>{reasons.map((reason) => <li key={`${reason.type}-${reason.memberId || "group"}`}>{reason.message}</li>)}</ul> : <p>没有单一硬约束阻断结果；建议一起调整预算、通勤或场景偏好。</p>}</div> : <div className="zero-result-actions">{canAdvance ? <button className="full-dark-button" onClick={onOpenAdvance} disabled={advancing}>{advancing ? "正在准备下一轮…" : "根据全体反馈开启下一轮"} <span>→</span></button> : refreshControl.visible ? <button className="full-dark-button" aria-pressed={refreshControl.requested} onClick={onRequestNextRound}>{refreshControl.label} <span>→</span></button> : null}<small>{requestCount} 人请求换一批{!isCreator ? " · 房主会在所有成员提交后推进" : ""}</small></div>}{room.currentRound >= 3 ? <div className="conflict-actions"><button className="full-dark-button" onClick={onAdjust}>调整我的边界 <span>→</span></button><button className="round-request-button" onClick={onDiscuss}>返回房间讨论</button></div> : null}{error && <p className="form-error" role="alert">{error}</p>}</section>;
+    const commuteSuggestion = suggestMinimumCommuteRelaxation(room.candidates, room.members);
+    return <section className="flow-page results-page no-solution"><span className="no-solution-icon">∅</span><h1>{room.currentRound >= 3 ? "已经完成三轮探索" : "没有交集，先补充每个人的发现"}</h1><p>{room.currentRound >= 3 ? "系统不会强行给出一个不合适的答案。下面是本轮最影响交集的边界。" : "每个人可以从三张仅自己可见的卡里提名一张，也可以明确跳过；提名会进入下一轮共享评选。"}</p>{room.currentRound >= 3 ? <div className="conflict-panel" role="status"><b>本轮冲突诊断</b>{reasons.length ? <ul>{reasons.map((reason) => <li key={`${reason.type}-${reason.memberId || "group"}`}>{reason.message}</li>)}</ul> : <p>没有单一硬约束阻断结果；建议一起调整预算、通勤或场景偏好。</p>}{commuteSuggestion && <div className="negotiation-suggestion"><strong>最小调整建议</strong><span>{commuteSuggestion.memberName} 将通勤上限从 {commuteSuggestion.currentMinutes} 调到 {commuteSuggestion.suggestedMinutes} 分钟，可恢复 {commuteSuggestion.restoredCandidateCount} 个候选。</span>{currentMember?.id === commuteSuggestion.memberId ? <button onClick={() => onAcceptCommute(commuteSuggestion.suggestedMinutes)}>我同意本轮增加 {commuteSuggestion.addedMinutes} 分钟</button> : <small>等待 {commuteSuggestion.memberName} 本人确认</small>}</div>}</div> : <div className="zero-result-actions"><button className="full-dark-button" onClick={onPrivateDiscovery} disabled={privateLoading}>{privateLoading ? "正在准备三张私人卡…" : currentMember?.refreshRequestRound === room.currentRound ? "重新查看我的私人发现" : "查看我的 3 张私人发现卡"} <span>→</span></button>{canAdvance && requestCount === room.config.people ? <button className="round-request-button" onClick={onOpenAdvance} disabled={advancing}>{advancing ? "正在准备下一轮…" : "房主：汇总提名并开启下一轮"}</button> : null}<small>{requestCount}/{room.config.people} 人已完成私人发现或请求换批</small></div>}{room.currentRound >= 3 ? <div className="conflict-actions"><button className="full-dark-button" onClick={onAdjust}>调整我的边界 <span>→</span></button><button className="round-request-button" onClick={onDiscuss}>返回房间讨论</button></div> : null}{error && <p className="form-error" role="alert">{error}</p>}</section>;
   }
   const selected = main;
   return <section className="flow-page results-page">

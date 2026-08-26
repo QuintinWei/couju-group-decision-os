@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aggregatePrivateCategoryPenalties, aggregateRoundFeedback, applyCategoryPenalties, buildNextRoundSlots, canRequestPrivateDiscovery, diagnoseRoundConflict, normalizeFeedbackInterestScores, selectQualifiedExploration, RoundCompositionError } from "../lib/rounds.ts";
+import { aggregatePrivateCategoryPenalties, aggregateRoundFeedback, applyCategoryPenalties, buildNextRoundSlots, canRequestPrivateDiscovery, diagnoseRoundConflict, normalizeFeedbackInterestScores, selectQualifiedExploration, suggestMinimumCommuteRelaxation, RoundCompositionError } from "../lib/rounds.ts";
 import { getDemoCandidates } from "../lib/couju.ts";
 
 const candidates = getDemoCandidates("上海", "activity").slice(0, 3);
@@ -18,9 +18,9 @@ test("private discovery requires rejecting every shared candidate", () => {
   assert.equal(canRequestPrivateDiscovery(["a", "b"], { a: "no", b: "no" }), false);
 });
 
-test("group feedback uses like +2, okay +0.5, no -1.5", () => {
+test("group feedback treats an unexplained rejection as a weak negative signal", () => {
   const feedback = aggregateRoundFeedback(candidates, members);
-  assert.equal(feedback.categoryScores.get(candidates[0].type), 0.5);
+  assert.equal(feedback.categoryScores.get(candidates[0].type), 1.5);
   assert.equal(feedback.categoryScores.get(candidates[1].type), 2.5);
   assert.deepEqual(feedback.rejectedCandidateIds, [candidates[2].id]);
   assert.deepEqual(feedback.seenCandidateIds, candidates.map((candidate) => candidate.id));
@@ -38,11 +38,22 @@ test("feedback keeps distinct matched interests even when Amap returns the same 
     submittedAt: "2026-08-24T00:00:00.000Z",
   }]);
   assert.equal(feedback.categoryScores.get("陶艺泥塑"), 2);
-  assert.equal(feedback.categoryScores.get("攀岩"), -1.5);
+  assert.equal(feedback.categoryScores.get("攀岩"), -0.5);
   assert.equal(feedback.categoryScores.has("生活服务"), false);
   const learnScores = normalizeFeedbackInterestScores("activity", feedback.categoryScores);
   assert.equal(learnScores.get("陶艺泥塑"), 2);
-  assert.equal(learnScores.get("攀岩"), -1.5);
+  assert.equal(learnScores.get("攀岩"), -0.5);
+});
+
+test("a distance rejection preserves category interest while a category rejection lowers it", () => {
+  const source = getDemoCandidates("上海", "dining").slice(0, 2).map((item, index) => ({ ...item, id: `food-${index}`, matchedInterest: "火锅" }));
+  const feedback = aggregateRoundFeedback(source, [{
+    id: "member",
+    choices: { "food-0": "no", "food-1": "no" },
+    rejectionReasons: { "food-0": { code: "distance" }, "food-1": { code: "category" } },
+    submittedAt: "2026-08-24T00:00:00.000Z",
+  }]);
+  assert.equal(feedback.categoryScores.get("火锅"), -1.5);
 });
 
 test("every non-nominated private card penalizes its stable category by minus 1.5", () => {
@@ -136,4 +147,10 @@ test("conflict diagnosis ranks partial member impacts when members jointly elimi
   ]);
   assert.match(reasons[0].message, /小安/);
   assert.match(reasons[1].message, /小北/);
+});
+
+test("commute negotiation proposes the smallest real relaxation from candidate travel facts", () => {
+  const pool = getDemoCandidates("上海", "activity").slice(0, 3).map((item, index) => ({ ...item, estimatedTravelMinutes: [38, 44, 55][index], location: null }));
+  const suggestion = suggestMinimumCommuteRelaxation(pool, [{ id: "b", name: "小北", commuteLabel: "≤ 30 分钟", originLocation: null }]);
+  assert.deepEqual(suggestion, { memberId: "b", memberName: "小北", currentMinutes: 30, suggestedMinutes: 38, addedMinutes: 8, restoredCandidateCount: 1 });
 });

@@ -138,6 +138,7 @@ export type GroupMemberPreference = {
   note: string;
   extraction: PreferenceExtraction | null;
   choices: Record<string, Choice>;
+  rejectionReasons?: import("./rejection-feedback").RejectionReasonRecord;
   submittedAt: string | null;
 };
 

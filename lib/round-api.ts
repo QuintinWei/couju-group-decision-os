@@ -1,10 +1,10 @@
 import { canRequestPrivateDiscovery } from "./rounds.ts";
 
 type CandidateIdentity = { id: string; source?: { providerId?: string } };
-type MemberSubmission = { id: string; submittedAt: string | null };
+type MemberSubmission = { id: string; submittedAt: string | null; choices?: Record<string, "no" | "okay" | "like">; refreshRequestRound?: number | null };
 type PrivateDiscoveryMember = { privateCandidates: CandidateIdentity[]; nominatedCandidate: CandidateIdentity | null };
 
-export type RoundGateCode = "NOT_CREATOR" | "STALE_ROUND" | "MAX_ROUNDS" | "INCOMPLETE_MEMBERS" | "INVALID_SHARED_CANDIDATES" | "PRIVATE_INELIGIBLE" | "GENERATION_FAILED" | "SERVICE_FAILED" | "MALFORMED";
+export type RoundGateCode = "NOT_CREATOR" | "STALE_ROUND" | "MAX_ROUNDS" | "INCOMPLETE_MEMBERS" | "INCOMPLETE_PRIVATE_DISCOVERY" | "INVALID_SHARED_CANDIDATES" | "PRIVATE_INELIGIBLE" | "GENERATION_FAILED" | "SERVICE_FAILED" | "MALFORMED";
 export type RoundGateResult = { ok: true } | { ok: false; status: 400 | 403 | 409 | 422 | 429 | 503; code: RoundGateCode };
 
 export function validateRoundActionPayload(body: Record<string, unknown>): RoundGateResult {
@@ -25,12 +25,18 @@ export function evaluateAdvanceGate(room: { currentRound: number; members: Membe
   if (room.currentRound !== expectedRound) return { ok: false, status: 409, code: "STALE_ROUND" };
   if (room.currentRound >= 3) return { ok: false, status: 429, code: "MAX_ROUNDS" };
   if (!allCurrentMembersSubmitted(room.members)) return { ok: false, status: 409, code: "INCOMPLETE_MEMBERS" };
+  const completeChoices = room.members.every((member) => member.choices && room.candidates.every((candidate) => Boolean(member.choices?.[candidate.id])));
+  const noIntersection = completeChoices && room.candidates.every((candidate) => room.members.some((member) => member.choices?.[candidate.id] === "no"));
+  if (noIntersection && room.members.some((member) => member.refreshRequestRound !== room.currentRound)) return { ok: false, status: 409, code: "INCOMPLETE_PRIVATE_DISCOVERY" };
   if (room.candidates.length !== 12 || !hasUniqueProviderIds(room.candidates)) return { ok: false, status: 422, code: "INVALID_SHARED_CANDIDATES" };
   return { ok: true };
 }
 
-export function evaluatePrivateDiscoveryGate(candidateIds: string[], choices: Record<string, "no" | "okay" | "like">): RoundGateResult {
-  return canRequestPrivateDiscovery(candidateIds, choices)
+export function evaluatePrivateDiscoveryGate(candidateIds: string[], choices: Record<string, "no" | "okay" | "like">, groupChoices: Array<Record<string, "no" | "okay" | "like">> = []): RoundGateResult {
+  const groupHasNoIntersection = groupChoices.length > 0
+    && groupChoices.every((memberChoices) => candidateIds.every((id) => Boolean(memberChoices[id])))
+    && candidateIds.every((id) => groupChoices.some((memberChoices) => memberChoices[id] === "no"));
+  return canRequestPrivateDiscovery(candidateIds, choices) || groupHasNoIntersection
     ? { ok: true }
     : { ok: false, status: 422, code: "PRIVATE_INELIGIBLE" };
 }

@@ -1,6 +1,7 @@
 import type { Candidate, Choice, DecisionKind, GroupMemberPreference, RoomConfig } from "./couju.ts";
 import { DEFAULT_INTERESTS } from "./couju.ts";
 import { estimateTravelBetween, parseCommuteLimit } from "./couju.ts";
+import { feedbackWeight } from "./rejection-feedback.ts";
 
 export type RoundFeedback = {
   categoryScores: Map<string, number>;
@@ -23,9 +24,23 @@ export type ConflictReason = {
   message: string;
 };
 
-const CHOICE_WEIGHT: Record<Choice, number> = { like: 2, okay: 0.5, no: -1.5 };
+export type CommuteRelaxationSuggestion = { memberId: string; memberName: string; currentMinutes: number; suggestedMinutes: number; addedMinutes: number; restoredCandidateCount: number };
 
-type RoundMember = Pick<GroupMemberPreference, "id" | "choices" | "submittedAt"> & Partial<Pick<GroupMemberPreference, "name" | "originLocation" | "budgetLabel" | "commuteLabel" | "setting" | "extraction">>;
+export function suggestMinimumCommuteRelaxation(candidates: Candidate[], members: Array<{ id: string; name?: string; commuteLabel?: string; originLocation?: { lng: number; lat: number } | null }>): CommuteRelaxationSuggestion | null {
+  const suggestions = members.flatMap((member) => {
+    const currentMinutes = parseCommuteLimit(member.commuteLabel ?? "不限");
+    if (currentMinutes === null) return [];
+    const over = candidates.map((candidate) => estimateTravelBetween(member.originLocation ?? null, candidate.location) ?? candidate.estimatedTravelMinutes)
+      .filter((minutes): minutes is number => minutes !== null && minutes > currentMinutes)
+      .sort((a, b) => a - b);
+    if (!over.length) return [];
+    const suggestedMinutes = Math.ceil(over[0]);
+    return [{ memberId: member.id, memberName: member.name || "某位成员", currentMinutes, suggestedMinutes, addedMinutes: suggestedMinutes - currentMinutes, restoredCandidateCount: over.filter((minutes) => minutes <= suggestedMinutes).length }];
+  });
+  return suggestions.sort((a, b) => a.addedMinutes - b.addedMinutes || b.restoredCandidateCount - a.restoredCandidateCount)[0] ?? null;
+}
+
+type RoundMember = Pick<GroupMemberPreference, "id" | "choices" | "submittedAt"> & Partial<Pick<GroupMemberPreference, "name" | "originLocation" | "budgetLabel" | "commuteLabel" | "setting" | "extraction" | "rejectionReasons">>;
 
 export function canRequestPrivateDiscovery(candidateIds: string[], choices: Record<string, Choice>): boolean {
   return candidateIds.length === 12 && candidateIds.every((id) => choices[id] === "no");
@@ -35,7 +50,10 @@ export function aggregateRoundFeedback(candidates: Candidate[], members: RoundMe
   const readyMembers = members.filter((member) => member.submittedAt !== null && member.submittedAt !== undefined);
   const categoryScores = new Map<string, number>();
   for (const candidate of candidates) {
-    const score = readyMembers.reduce((total, member) => total + (member.choices[candidate.id] ? CHOICE_WEIGHT[member.choices[candidate.id]] : 0), 0);
+    const score = readyMembers.reduce((total, member) => {
+      const choice = member.choices[candidate.id];
+      return total + (choice ? feedbackWeight(choice, member.rejectionReasons?.[candidate.id]?.code) : 0);
+    }, 0);
     const category = candidate.matchedInterest || candidate.type;
     categoryScores.set(category, (categoryScores.get(category) ?? 0) + score);
   }

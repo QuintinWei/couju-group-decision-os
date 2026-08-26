@@ -1,7 +1,8 @@
-import { getStoredRoom, joinStoredRoom, replaceInitialCandidates, saveStoredMemberConstraints, updateStoredMember } from "../../../lib/room-store";
+import { getStoredRoom, joinStoredRoom, relaxStoredMemberCommute, replaceInitialCandidates, saveStoredMemberConstraints, updateStoredMember } from "../../../lib/room-store";
 import type { Candidate, Choice, PreferenceExtraction } from "../../../lib/couju";
 import { geocodeOrigin } from "../../../lib/amap";
 import { isChoiceRecord } from "../../../lib/member-submission";
+import { validateRejectionReasons, type RejectionReasonRecord } from "../../../lib/rejection-feedback";
 import { selectGroupReachableCandidates } from "../../../lib/group-candidate-intersection";
 import { GET as getCandidates } from "../candidates/route";
 
@@ -40,11 +41,20 @@ export async function PATCH(request: Request) {
   const token = cleanText(body.token, 128);
   if (!/^[A-Z0-9]{6}$/.test(roomCode) || !memberId || !token) return Response.json({ error: "成员身份无效" }, { status: 400 });
   if (body.action === "constraints") return saveConstraintsAndBuildIntersection(request, body, { roomCode, memberId, token });
+  if (body.action === "relax-commute") {
+    const result = await relaxStoredMemberCommute({ roomCode, memberId, token, expectedRound: Number(body.expectedRound), minutes: Number(body.minutes) });
+    if (!result.ok) return Response.json({ error: result.code === "UNAUTHORIZED" ? "成员身份已失效" : result.code === "STALE_ROUND" ? "房间轮次已变化" : "通勤调整无效" }, { status: result.code === "UNAUTHORIZED" ? 403 : result.code === "STALE_ROUND" ? 409 : 400 });
+    return Response.json({ ok: true });
+  }
   const expectedRound = body.expectedRound;
   if (typeof expectedRound !== "number" || !Number.isInteger(expectedRound) || expectedRound < 1 || expectedRound > 3 || !isChoiceRecord(body.choices)) {
     return Response.json({ error: "轮次或 12 张候选选择无效" }, { status: 400 });
   }
   const choices = body.choices as Record<string, Choice>;
+  const rejectionReasons = body.rejectionReasons ?? {};
+  const roomForValidation = await getStoredRoom(roomCode);
+  const candidateIds = roomForValidation?.candidates.map((candidate) => candidate.id) ?? [];
+  if (!validateRejectionReasons(rejectionReasons, candidateIds, choices)) return Response.json({ error: "不喜欢原因无效" }, { status: 400 });
   const extraction = body.extraction && typeof body.extraction === "object" ? body.extraction as PreferenceExtraction : null;
   try {
     const updated = await updateStoredMember({
@@ -57,6 +67,7 @@ export async function PATCH(request: Request) {
       note: cleanText(body.note, 500),
       extraction,
       choices,
+      rejectionReasons: rejectionReasons as RejectionReasonRecord,
       expectedRound,
     });
     if (!updated.ok) {
