@@ -32,6 +32,21 @@ test("private discovery opens for each submitted member when group choices have 
   assert.equal(evaluatePrivateDiscoveryGate(ids, first, [first, { ...second, [ids[6]]: "okay" }]).ok, false);
 });
 
+test("hard constraints with zero feasible result also require private discovery before round two", () => {
+  const candidateIds = Array.from({ length: 12 }, (_, index) => `c${index}`);
+  const choices = Object.fromEntries(candidateIds.map((id) => [id, "like"]));
+  assert.equal(evaluatePrivateDiscoveryGate(candidateIds, choices, [choices, choices], false).ok, true);
+  const room = {
+    currentRound: 1,
+    candidates: candidateIds.map((id) => ({ id, source: { providerId: id } })),
+    members: [
+      { id: "owner", submittedAt: "now", choices, refreshRequestRound: 1 },
+      { id: "friend", submittedAt: "now", choices, refreshRequestRound: null },
+    ],
+  };
+  assert.deepEqual(evaluateAdvanceGate(room, "owner", 1, false), { ok: false, status: 409, code: "INCOMPLETE_PRIVATE_DISCOVERY" });
+});
+
 test("generation failure does not invoke mutation", async () => {
   let mutated = false;
   const gate = evaluateAdvanceGate({ currentRound: 1, members: [submitted], candidates }, "creator", 1);

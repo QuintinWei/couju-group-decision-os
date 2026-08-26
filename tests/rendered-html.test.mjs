@@ -205,6 +205,13 @@ test("the rejection reason sheet stays compact on desktop and mobile", async () 
   assert.doesNotMatch(css, /@media\(max-width:420px\)\{\.rejection-sheet>div:not\(\.other-reason\)\{grid-template-columns:1fr\}/);
 });
 
+test("finishing the shared cards submits directly without an AI extraction detour", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(page, /stage === "constraints" && <PreferenceDetailsScreen/);
+  assert.match(page, /submitCompletedChoices/);
+  assert.match(page, /onBack=\{\(\) => setStage\("results"\)\}/);
+});
+
 test("the UI keeps private rescue cards separate from the shared round", async () => {
   const [page, css, roomsRoute] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),

@@ -30,8 +30,8 @@ test("private nomination is a single-select toggle and skip sends a null nominat
   assert.deepEqual(privateDiscoveryRequestPlan()[1], { action: "request", requested: true });
 });
 
-test("failed private discovery returns to a retryable constraints state", () => {
-  assert.deepEqual(privateDiscoveryFailure("temporary failure"), { stage: "constraints", message: "temporary failure", retryable: true });
+test("failed private discovery returns to results instead of the removed AI field page", () => {
+  assert.deepEqual(privateDiscoveryFailure("temporary failure"), { stage: "results", message: "temporary failure", retryable: true });
 });
 
 test("the unauthenticated join DTO exposes only room summary counts, never member names", () => {

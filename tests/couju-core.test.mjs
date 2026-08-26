@@ -66,8 +66,8 @@ test("candidate refresh is available only to the creator after a result exists",
   assert.equal(canRefreshCandidates(false, "results", true), false);
 });
 
-test("personal hard limits are collected before cards and optional details follow cards", () => {
-  assert.deepEqual(PREFERENCE_FLOW, ["setup", "swipe", "constraints"]);
+test("personal hard limits are collected before cards and cards submit directly", () => {
+  assert.deepEqual(PREFERENCE_FLOW, ["setup", "swipe"]);
   assert.equal(parseCommuteLimit("≤ 1.5 小时"), 90);
 });
 

@@ -22,5 +22,5 @@ export function privateNominationAction(candidateId: string | null): RoundClient
 }
 
 export function privateDiscoveryFailure(message: string) {
-  return { stage: "constraints" as const, message, retryable: true };
+  return { stage: "results" as const, message, retryable: true };
 }

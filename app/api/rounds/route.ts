@@ -1,5 +1,5 @@
 import { GET as getCandidates } from "../candidates/route";
-import { DEFAULT_INTERESTS, type Candidate } from "../../../lib/couju";
+import { DEFAULT_INTERESTS, rankGroupCandidates, type Candidate } from "../../../lib/couju";
 import { aggregatePrivateCategoryPenalties, aggregateRoundFeedback, applyCategoryPenalties, buildNextRoundSlots, normalizeFeedbackInterestScores, selectQualifiedExploration, RoundCompositionError } from "../../../lib/rounds";
 import { collectAdvanceExcludedIds, evaluateAdvanceGate, evaluatePrivateDiscoveryGate, executeGuardedGeneration, validateRoundActionPayload } from "../../../lib/round-api";
 import type { CandidateMeta, RoundMutationFailure, StoredMember, StoredRoom } from "../../../lib/room-store";
@@ -61,7 +61,9 @@ async function handlePrivateDiscovery(request: Request, auth: MemberAuth, expect
 
   const candidateIds = room.candidates.map((candidate) => candidate.id);
   const submittedMembers = room.members.filter((item) => item.submittedAt);
-  const privateGate = evaluatePrivateDiscoveryGate(candidateIds, member.choices, submittedMembers.length === room.config.people ? submittedMembers.map((item) => item.choices) : []);
+  const allSubmitted = submittedMembers.length === room.config.people;
+  const hasFeasibleResult = !allSubmitted || rankGroupCandidates(room.candidates, room.members, room.config).length > 0;
+  const privateGate = evaluatePrivateDiscoveryGate(candidateIds, member.choices, allSubmitted ? submittedMembers.map((item) => item.choices) : [], hasFeasibleResult);
   if (!privateGate.ok) {
     return error("只有你拒绝全部候选，或全员提交后没有共同候选时，才能开启私人发现", 422);
   }
@@ -102,7 +104,8 @@ async function handleAdvance(request: Request, auth: MemberAuth, expectedRound: 
   const { advanceStoredRound, getAuthenticatedStoredRoom } = await loadRoomStore();
   const room = await getAuthenticatedStoredRoom(auth);
   if (!room) return error("成员身份已失效，请重新加入", 403);
-  const advanceGate = evaluateAdvanceGate(room, auth.memberId, expectedRound);
+  const hasFeasibleResult = rankGroupCandidates(room.candidates, room.members, room.config).length > 0;
+  const advanceGate = evaluateAdvanceGate(room, auth.memberId, expectedRound, hasFeasibleResult);
   if (!advanceGate.ok) return advanceGateResponse(advanceGate.code, advanceGate.status);
 
   const execution = await executeGuardedGeneration(

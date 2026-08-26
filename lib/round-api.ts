@@ -20,22 +20,22 @@ export function validateRoundActionPayload(body: Record<string, unknown>): Round
   return { ok: true };
 }
 
-export function evaluateAdvanceGate(room: { currentRound: number; members: MemberSubmission[]; candidates: CandidateIdentity[] }, memberId: string, expectedRound: number): RoundGateResult {
+export function evaluateAdvanceGate(room: { currentRound: number; members: MemberSubmission[]; candidates: CandidateIdentity[] }, memberId: string, expectedRound: number, hasFeasibleResult = true): RoundGateResult {
   if (room.members[0]?.id !== memberId) return { ok: false, status: 403, code: "NOT_CREATOR" };
   if (room.currentRound !== expectedRound) return { ok: false, status: 409, code: "STALE_ROUND" };
   if (room.currentRound >= 3) return { ok: false, status: 429, code: "MAX_ROUNDS" };
   if (!allCurrentMembersSubmitted(room.members)) return { ok: false, status: 409, code: "INCOMPLETE_MEMBERS" };
   const completeChoices = room.members.every((member) => member.choices && room.candidates.every((candidate) => Boolean(member.choices?.[candidate.id])));
-  const noIntersection = completeChoices && room.candidates.every((candidate) => room.members.some((member) => member.choices?.[candidate.id] === "no"));
+  const noIntersection = completeChoices && (!hasFeasibleResult || room.candidates.every((candidate) => room.members.some((member) => member.choices?.[candidate.id] === "no")));
   if (noIntersection && room.members.some((member) => member.refreshRequestRound !== room.currentRound)) return { ok: false, status: 409, code: "INCOMPLETE_PRIVATE_DISCOVERY" };
   if (room.candidates.length !== 12 || !hasUniqueProviderIds(room.candidates)) return { ok: false, status: 422, code: "INVALID_SHARED_CANDIDATES" };
   return { ok: true };
 }
 
-export function evaluatePrivateDiscoveryGate(candidateIds: string[], choices: Record<string, "no" | "okay" | "like">, groupChoices: Array<Record<string, "no" | "okay" | "like">> = []): RoundGateResult {
+export function evaluatePrivateDiscoveryGate(candidateIds: string[], choices: Record<string, "no" | "okay" | "like">, groupChoices: Array<Record<string, "no" | "okay" | "like">> = [], hasFeasibleResult = true): RoundGateResult {
   const groupHasNoIntersection = groupChoices.length > 0
     && groupChoices.every((memberChoices) => candidateIds.every((id) => Boolean(memberChoices[id])))
-    && candidateIds.every((id) => groupChoices.some((memberChoices) => memberChoices[id] === "no"));
+    && (!hasFeasibleResult || candidateIds.every((id) => groupChoices.some((memberChoices) => memberChoices[id] === "no")));
   return canRequestPrivateDiscovery(candidateIds, choices) || groupHasNoIntersection
     ? { ok: true }
     : { ok: false, status: 422, code: "PRIVATE_INELIGIBLE" };

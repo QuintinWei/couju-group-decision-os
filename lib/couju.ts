@@ -1,6 +1,6 @@
 export type Stage = "home" | "create" | "join" | "room" | "setup" | "swipe" | "constraints" | "ranking" | "results" | "locked";
 export type Choice = "no" | "okay" | "like";
-export const PREFERENCE_FLOW = ["setup", "swipe", "constraints"] as const;
+export const PREFERENCE_FLOW = ["setup", "swipe"] as const;
 
 export function canRefreshCandidates(isCreator: boolean, stage: Stage, hasResult: boolean) {
   return isCreator && stage === "results" && hasResult;
