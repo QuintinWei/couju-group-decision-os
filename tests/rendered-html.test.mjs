@@ -73,7 +73,7 @@ test("keeps provenance, DeepSeek extraction, and deterministic ranking in the pr
   await access(new URL("../app/api/preferences/route.ts", import.meta.url));
   await access(new URL("../.env.example", import.meta.url));
   await access(new URL("../public/candidates/food-yunnan.jpg", import.meta.url));
-  await access(new URL("../docs/AI_WORKFLOW.md", import.meta.url));
+  await access(new URL("../docs/assets/couju-demo.mp4", import.meta.url));
 });
 
 test("persists explicit shared-decision round fields in the D1 schema", async () => {
