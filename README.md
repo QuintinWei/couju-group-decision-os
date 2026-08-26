@@ -8,7 +8,6 @@
 
 https://github.com/user-attachments/assets/7b5fe9cf-3378-4757-99ac-128d2a0ed951
 
-视频可直接在 GitHub 页面内播放，无需下载。
 
 ## 这是什么
 
