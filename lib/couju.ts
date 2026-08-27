@@ -366,6 +366,7 @@ export function rankGroupCandidates(
   const scored = candidates
     .flatMap((candidate) => {
       if (excluded.has(candidate.id)) return [];
+      if (candidate.priceValue === null) return [];
       const memberContexts = readyMembers.map((member) => {
         const budget = mergeNumericLimit(parseLimit(member.budgetLabel), constraintNumber(member.extraction, "max_budget"));
         let commute = parseCommuteLimit(member.commuteLabel);
@@ -377,14 +378,13 @@ export function rankGroupCandidates(
       });
       if (memberContexts.some(({ member, budget, commute, travelMinutes, availableMinutes, noSpicy }) =>
         member.choices[candidate.id] === "no" ||
-        (budget !== null && candidate.priceValue !== null && candidate.priceValue > budget) ||
+        (budget !== null && candidate.priceValue > budget) ||
         (commute !== null && travelMinutes !== null && travelMinutes > commute + COMMUTE_TOLERANCE_MINUTES) ||
         candidate.durationMinutes > availableMinutes ||
         (noSpicy && candidate.features.nonSpicyAvailable === false)
       )) return [];
 
       const unknownFacts: string[] = [];
-      if (memberContexts.some(({ budget }) => budget !== null) && candidate.priceValue === null) unknownFacts.push("人均价格");
       if (memberContexts.some(({ commute }) => commute !== null) && candidate.estimatedTravelMinutes === null) unknownFacts.push("通勤时间");
       if (memberContexts.some(({ noSpicy }) => noSpicy) && candidate.features.nonSpicyAvailable === null) unknownFacts.push("不辣选项");
       if (candidate.source.mode === "live" && !candidate.openToday) unknownFacts.push("营业时间");

@@ -6,7 +6,6 @@ export type RejectionReasonRecord = Record<string, RejectionReason>;
 
 const COMMON = [
   { code: "distance", label: "太远" },
-  { code: "price", label: "太贵" },
 ] as const;
 
 export function rejectionReasonOptions(kind: DecisionKind) {

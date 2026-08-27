@@ -1,13 +1,37 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { aggregatePrivateCategoryPenalties, aggregateRoundFeedback, applyCategoryPenalties, buildNextRoundSlots, canRequestPrivateDiscovery, diagnoseRoundConflict, normalizeFeedbackInterestScores, selectQualifiedExploration, suggestMinimumCommuteRelaxation, RoundCompositionError } from "../lib/rounds.ts";
-import { getDemoCandidates } from "../lib/couju.ts";
+import { getDemoCandidates, rankGroupCandidates } from "../lib/couju.ts";
+import { selectGroupReachableCandidates } from "../lib/group-candidate-intersection.ts";
 
 const candidates = getDemoCandidates("上海", "activity").slice(0, 3);
 const members = [
   { id: "one", name: "一", choices: { [candidates[0].id]: "like", [candidates[1].id]: "okay", [candidates[2].id]: "no" }, submittedAt: "2026-08-24T00:00:00.000Z" },
   { id: "two", name: "二", choices: { [candidates[0].id]: "no", [candidates[1].id]: "like", [candidates[2].id]: "no" }, submittedAt: "2026-08-24T00:00:00.000Z" },
 ];
+
+test("shared card pools require a known per-person price within every member budget", () => {
+  const source = getDemoCandidates("上海", "dining").slice(0, 4).map((item, index) => ({
+    ...item,
+    id: `budget-${index}`,
+    location: { lng: 121.47, lat: 31.23 },
+    priceValue: [null, 88, 128, 188][index],
+  }));
+  const eligible = selectGroupReachableCandidates(source, [
+    { originLocation: { lng: 121.47, lat: 31.23 }, commuteLabel: "不限", budgetLabel: "≤ ¥150" },
+    { originLocation: { lng: 121.47, lat: 31.23 }, commuteLabel: "不限", budgetLabel: "≤ ¥100" },
+  ], 12);
+  assert.deepEqual(eligible.map((item) => item.id), ["budget-1"]);
+});
+
+test("final ranking never recommends a candidate with unknown per-person price", () => {
+  const candidate = { ...getDemoCandidates("上海", "dining")[0], priceValue: null, priceLabel: "价格未知" };
+  const ranked = rankGroupCandidates([candidate], [{
+    id: "member", name: "成员", origin: "", originLocation: null, budgetLabel: "不限", commuteLabel: "不限",
+    setting: "都可以", note: "", extraction: null, choices: { [candidate.id]: "like" }, submittedAt: new Date().toISOString(),
+  }], { city: "上海", kind: "dining", date: "2026-08-24", startTime: "18:00", endTime: "21:30", people: 1 });
+  assert.deepEqual(ranked, []);
+});
 
 test("private discovery requires rejecting every shared candidate", () => {
   const ids = Array.from({ length: 12 }, (_, index) => `candidate-${index}`);

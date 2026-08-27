@@ -49,7 +49,8 @@ export async function GET(request: Request) {
   try {
     const pages = privateMode ? [page] : amapPagesForBatch(batchIndex);
     const resultSets = await Promise.all(interests.flatMap((interest) => pages.map((pageNumber) => searchAmap({ key, city, kind, interest, page: pageNumber, center: location }))));
-    const prioritized = prioritizeStrategy(diversify(resultSets, city, kind, avoidTokens, excludedIds, location), strategy, interests, explorationTypes, learnedScores, privateRanking);
+    const pricedCandidates = diversify(resultSets, city, kind, avoidTokens, excludedIds, location).filter((candidate) => candidate.priceValue !== null);
+    const prioritized = prioritizeStrategy(pricedCandidates, strategy, interests, explorationTypes, learnedScores, privateRanking);
     const candidates = privateMode ? prioritized.slice(0, targetCount) : selectCandidateBatch(prioritized, { excludedIds, batchSize: targetCount, seed, kind });
     if (candidates.length !== targetCount || !hasUniqueProviderIds(candidates)) throw new Error("Not enough usable POIs");
     return Response.json({

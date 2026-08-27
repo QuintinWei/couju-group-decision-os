@@ -3,10 +3,21 @@ import { estimateTravelBetween, parseCommuteLimit, type Candidate } from "./couj
 type MemberReachability = {
   originLocation: { lng: number; lat: number } | null;
   commuteLabel: string;
+  budgetLabel?: string;
 };
+
+function parseBudgetLimit(label = "不限") {
+  if (/不限/.test(label)) return null;
+  const match = label.match(/\d+/);
+  return match ? Number(match[0]) : null;
+}
 
 export function selectGroupReachableCandidates(candidates: Candidate[], members: MemberReachability[], limit = 12) {
   return candidates
+    .filter((candidate) => candidate.priceValue !== null && members.every((member) => {
+      const ceiling = parseBudgetLimit(member.budgetLabel);
+      return ceiling === null || candidate.priceValue! <= ceiling;
+    }))
     .map((candidate) => {
       const ratios = members.map((member) => {
         const ceiling = parseCommuteLimit(member.commuteLabel);

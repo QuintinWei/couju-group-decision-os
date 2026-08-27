@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { feedbackWeight, rejectionReasonOptions, sanitizeRejectionReasons, validateRejectionReasons } from "../lib/rejection-feedback.ts";
 
-test("dining and activity expose four concise, kind-specific rejection reasons", () => {
-  assert.deepEqual(rejectionReasonOptions("dining").map((item) => item.label), ["太远", "太贵", "不喜欢这个菜系", "只是这家不合适"]);
-  assert.deepEqual(rejectionReasonOptions("activity").map((item) => item.label), ["太远", "太贵", "不喜欢这种活动", "只是这个地点不合适"]);
+test("rejection reasons omit price because shared cards already pass every member budget", () => {
+  assert.deepEqual(rejectionReasonOptions("dining").map((item) => item.label), ["太远", "不喜欢这个菜系", "只是这家不合适"]);
+  assert.deepEqual(rejectionReasonOptions("activity").map((item) => item.label), ["太远", "不喜欢这种活动", "只是这个地点不合适"]);
 });
 
 test("distance, price and place rejection do not punish the category", () => {

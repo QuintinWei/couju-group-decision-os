@@ -3,6 +3,7 @@ import { DEFAULT_INTERESTS, rankGroupCandidates, type Candidate } from "../../..
 import { aggregatePrivateCategoryPenalties, aggregateRoundFeedback, applyCategoryPenalties, buildNextRoundSlots, normalizeFeedbackInterestScores, selectQualifiedExploration, RoundCompositionError } from "../../../lib/rounds";
 import { collectAdvanceExcludedIds, evaluateAdvanceGate, evaluatePrivateDiscoveryGate, executeGuardedGeneration, validateRoundActionPayload } from "../../../lib/round-api";
 import type { CandidateMeta, RoundMutationFailure, StoredMember, StoredRoom } from "../../../lib/room-store";
+import { selectGroupReachableCandidates } from "../../../lib/group-candidate-intersection";
 
 export const dynamic = "force-dynamic";
 
@@ -154,7 +155,8 @@ async function generateNextRound(request: Request, room: StoredRoom): Promise<Ne
     explore: exploreInterests,
     seed: `explore:${room.code}:${room.currentRound}`,
   });
-  const reservedExploration = selectQualifiedExploration(exploration.candidates, exploreInterests, seenCategories(room));
+  const eligibleExploration = selectGroupReachableCandidates(exploration.candidates, room.members, exploration.candidates.length);
+  const reservedExploration = selectQualifiedExploration(eligibleExploration, exploreInterests, seenCategories(room));
   const learned = await fetchCandidateBatch(request, {
     city: room.config.city,
     kind: room.config.kind,
@@ -165,9 +167,11 @@ async function generateNextRound(request: Request, room: StoredRoom): Promise<Ne
     seed: `learn:${room.code}:${room.currentRound}`,
   });
 
+  const eligibleNominations = selectGroupReachableCandidates(nominations, room.members, nominations.length);
+  const eligibleLearned = selectGroupReachableCandidates(learned.candidates, room.members, learned.candidates.length);
   let candidates: Candidate[];
   try {
-    candidates = buildNextRoundSlots(nominations, learned.candidates, reservedExploration);
+    candidates = buildNextRoundSlots(eligibleNominations, eligibleLearned, reservedExploration);
   } catch (cause) {
     if (cause instanceof RoundCompositionError) throw new CandidateGenerationError(cause.message);
     throw cause;
