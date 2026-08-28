@@ -73,6 +73,15 @@ test("keeps room type and the four-step explainer on the landing page only", asy
   assert.match(homeScreen, /一起决策/);
   assert.match(homeScreen, /见证结果/);
 });
+
+test("uses seamless home artwork and a quieter room hierarchy", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.home-choice-card>img\{mix-blend-mode:normal/);
+  assert.match(css, /\.room-page \.data-audit-strip\{background:transparent/);
+  assert.match(css, /\.room-page \.room-grid\{[^}]*background:rgba/);
+  assert.match(css, /\.room-page \.round-status-card\{[^}]*background:transparent/);
+  assert.match(css, /\.room-page \.public-constraint\{[^}]*background:transparent/);
+});
 test("keeps provenance, DeepSeek extraction, and deterministic ranking in the product source", async () => {
   const [page, css, packageJson, amap, locationRoute] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
