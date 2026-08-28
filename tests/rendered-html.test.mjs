@@ -60,6 +60,19 @@ test("uses the new visual-first landing, create, and availability experience", a
   assert.match(css, /\.home-choice-grid/);
   assert.match(css, /@media\(max-width:700px\).*\.home-choice-grid\{grid-template-columns:1fr/s);
 });
+
+test("keeps room type and the four-step explainer on the landing page only", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const createScreen = page.slice(page.indexOf("function CreateScreen"), page.indexOf("function JoinScreen"));
+  const homeScreen = page.slice(page.indexOf("function HomeScreen"), page.indexOf("function ScreenTitle"));
+
+  assert.doesNotMatch(createScreen, /这次想决定什么/);
+  assert.doesNotMatch(createScreen, /create-process/);
+  assert.match(homeScreen, /创建或加入/);
+  assert.match(homeScreen, /邀请好友/);
+  assert.match(homeScreen, /一起决策/);
+  assert.match(homeScreen, /见证结果/);
+});
 test("keeps provenance, DeepSeek extraction, and deterministic ranking in the product source", async () => {
   const [page, css, packageJson, amap, locationRoute] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
