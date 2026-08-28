@@ -168,4 +168,4 @@ button:disabled{cursor:not-allowed;opacity:.55}
 .room-page .public-constraint{max-width:920px;background:transparent;box-shadow:none;border:0;padding:10px 4px}
 .room-page .public-constraint span{background:rgba(104,84,190,.08)}
 @media(max-width:900px){.room-page .room-grid{grid-template-columns:1fr}.room-page .room-main-card{padding:8px}.room-page .invite-card{margin-top:4px}}
-.home-choice-card>img{mix-blend-mode:normal;border-radius:0;-webkit-mask-image:radial-gradient(ellipse 84% 76% at 50% 54%,#000 58%,rgba(0,0,0,.82) 72%,transparent 100%);mask-image:radial-gradient(ellipse 84% 76% at 50% 54%,#000 58%,rgba(0,0,0,.82) 72%,transparent 100%)}
+.home-choice-card>img{mix-blend-mode:normal;border-radius:0}
