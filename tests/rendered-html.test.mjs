@@ -28,15 +28,37 @@ test("server-renders the Couju product landing page", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>凑局 Couju — Group Decision OS<\/title>/i);
-  assert.match(html, /不是猜一个答案/);
-  assert.match(html, /开始创建/);
+  assert.match(html, /不知道干啥/);
+  assert.match(html, /开始吃饭局/);
+  assert.match(html, /开始玩乐局/);
   assert.match(html, /十城地点已上线/);
-  assert.match(html, /已支持 10 座城市/);
-  assert.match(html, /广州、深圳、杭州/);
+  assert.match(html, /一起吃饭/);
+  assert.match(html, /出去玩/);
   assert.doesNotMatch(html, /广深杭成/);
   assert.doesNotMatch(html, /上海首发|Beta|数据模式全程可见/);
-  assert.match(html, /food-yunnan\.jpg/);
+  assert.match(html, /food-hero\.png/);
+  assert.match(html, /activity-hero\.png/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
+});
+
+test("uses the new visual-first landing, create, and availability experience", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /不知道干啥？/);
+  assert.match(page, /开始吃饭局/);
+  assert.match(page, /开始玩乐局/);
+  assert.match(page, /home-choice-grid/);
+  assert.match(page, /创建一个.*局/);
+  assert.match(page, /props\.ideaMode &&/);
+  assert.match(page, /大概什么时段/);
+  assert.match(page, /大概玩多久/);
+  assert.match(page, /availability-toolbar/);
+  assert.match(css, /\.couju-logo-mark/);
+  assert.match(css, /\.home-choice-grid/);
+  assert.match(css, /@media\(max-width:700px\).*\.home-choice-grid\{grid-template-columns:1fr/s);
 });
 test("keeps provenance, DeepSeek extraction, and deterministic ranking in the product source", async () => {
   const [page, css, packageJson, amap, locationRoute] = await Promise.all([
@@ -59,7 +81,7 @@ test("keeps provenance, DeepSeek extraction, and deterministic ranking in the pr
   assert.match(page, /rankCandidates/);
   assert.match(page, /规则降级/);
   assert.match(page, /手输地铁站或商圈也会参与通勤计算/);
-  assert.match(page, /默认从全城跨类型随机发现/);
+  assert.match(page, /给我灵感/);
   assert.match(page, /通勤约/);
   assert.match(page, /text\/calendar/);
   assert.match(amap, /city: CityName \| null/);
