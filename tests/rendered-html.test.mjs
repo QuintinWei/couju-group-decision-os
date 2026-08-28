@@ -77,6 +77,7 @@ test("keeps room type and the four-step explainer on the landing page only", asy
 test("uses seamless home artwork and a quieter room hierarchy", async () => {
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(css, /\.home-choice-card>img\{mix-blend-mode:normal/);
+  assert.match(css, /\.home-choice-card>img\{[^}]*mask-image:radial-gradient/);
   assert.match(css, /\.room-page \.data-audit-strip\{background:transparent/);
   assert.match(css, /\.room-page \.room-grid\{[^}]*background:rgba/);
   assert.match(css, /\.room-page \.round-status-card\{[^}]*background:transparent/);
