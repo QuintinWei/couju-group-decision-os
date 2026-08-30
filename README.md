@@ -8,7 +8,6 @@
 
 https://github.com/user-attachments/assets/6554f366-30c3-4eb1-ab61-f0bf73bf5e87
 
-> 最新完整演示，可直接在 GitHub 页面内播放。
 
 ## 作品简介
 
