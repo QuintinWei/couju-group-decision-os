@@ -85,10 +85,15 @@ export async function exchangeWechatCode(
     grant_type: "authorization_code",
   }).toString();
   const response = await fetchImpl(url);
-  const payload = await response.json() as { openid?: string; errcode?: number };
-  if (!response.ok || payload.errcode || !payload.openid) throw new Error("WECHAT_LOGIN_FAILED");
+  const payload = await response.json() as unknown;
+  if (!response.ok || !payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("WECHAT_LOGIN_FAILED");
+  }
 
-  return { openid: payload.openid };
+  const { errcode, openid } = payload as { errcode?: unknown; openid?: unknown };
+  if (errcode || typeof openid !== "string" || !openid.trim()) throw new Error("WECHAT_LOGIN_FAILED");
+
+  return { openid };
 }
 
 export async function createAccessToken(userId: string, issuedAtSeconds: number, secret: string): Promise<string> {

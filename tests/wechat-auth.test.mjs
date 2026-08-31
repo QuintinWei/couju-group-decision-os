@@ -21,6 +21,18 @@ test("wechat code is exchanged without exposing the app secret", async () => {
   assert.deepEqual(Object.keys(result), ["openid"]);
 });
 
+test("wechat code exchange rejects malformed openids", async () => {
+  for (const openid of [123, "   "]) {
+    await assert.rejects(
+      exchangeWechatCode("one-use-code", {
+        appId: "wx7162630074a237b6",
+        appSecret: "server-secret",
+      }, async () => Response.json({ openid })),
+      { message: "WECHAT_LOGIN_FAILED" },
+    );
+  }
+});
+
 test("signed access tokens reject tampering and expiry", async () => {
   const token = await createAccessToken("user-1", 1_000, "token-secret");
   assert.deepEqual(await verifyAccessToken(token, 1_100, "token-secret"), { userId: "user-1" });
