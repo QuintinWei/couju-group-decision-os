@@ -11,5 +11,3 @@ CREATE UNIQUE INDEX `users_openid_unique` ON `users` (`openid`);
 ALTER TABLE `members` ADD `user_id` text REFERENCES users(`id`);
 --> statement-breakpoint
 CREATE INDEX `members_user_id_idx` ON `members` (`user_id`);
---> statement-breakpoint
-CREATE UNIQUE INDEX `members_room_user_id_unique` ON `members` (`room_code`,`user_id`);

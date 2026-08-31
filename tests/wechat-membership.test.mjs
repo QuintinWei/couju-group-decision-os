@@ -4,8 +4,11 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { toParticipantRoom } from "../lib/public-room.ts";
 
-async function createMembershipDatabase() {
-  const migration = await readFile(new URL("../drizzle/0007_add_wechat_users.sql", import.meta.url), "utf8");
+async function createMembershipDatabase({ includeForwardMigration = true } = {}) {
+  const migrations = await Promise.all([
+    readFile(new URL("../drizzle/0007_add_wechat_users.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0008_add_unique_room_user_membership.sql", import.meta.url), "utf8"),
+  ]);
   const db = new DatabaseSync(":memory:");
   db.exec(`
     PRAGMA foreign_keys = ON;
@@ -22,7 +25,8 @@ async function createMembershipDatabase() {
       updated_at text NOT NULL
     );
   `);
-  db.exec(migration);
+  db.exec(migrations[0]);
+  if (includeForwardMigration) db.exec(migrations[1]);
   db.prepare("INSERT INTO users (id, openid, nickname, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
     .run("user-a", "openid-a", "用户 A", "now", "now");
   db.prepare("INSERT INTO rooms (code, target_people) VALUES (?, ?)").run("ABC123", 6);
@@ -112,9 +116,23 @@ test("participant room DTOs redact persistent user ids from every member", () =>
   assert.ok(dto.members.every((item) => !Object.hasOwn(item, "userId")));
 });
 
+test("the existing WeChat migration leaves room membership uniqueness to a forward migration", async () => {
+  const db = await createMembershipDatabase({ includeForwardMigration: false });
+  try {
+    const insert = db.prepare("INSERT INTO members (id, room_code, user_id, token_hash, name, origin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+
+    insert.run("linked-before-forward-a", "ABC123", "user-a", "hash-a", "用户 A", "静安寺", "now", "now");
+    assert.doesNotThrow(() => insert.run("linked-before-forward-b", "ABC123", "user-a", "hash-b", "用户 A", "静安寺", "now", "now"));
+  } finally {
+    db.close();
+  }
+});
+
 test("membership migration enforces one linked user per room while allowing anonymous members", async () => {
   const db = await createMembershipDatabase();
   try {
+    const index = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("members_room_user_id_unique");
+    assert.equal(index.name, "members_room_user_id_unique");
     const insert = db.prepare("INSERT INTO members (id, room_code, user_id, token_hash, name, origin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 
     insert.run("linked-a", "ABC123", "user-a", "hash-a", "用户 A", "静安寺", "now", "now");
