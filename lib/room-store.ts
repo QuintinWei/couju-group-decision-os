@@ -7,6 +7,7 @@ import { validateMemberSubmission } from "./member-submission";
 import { randomRoomCode } from "./room-code";
 import { resolveGroupSchedule, type AvailabilityInterval, type ResolvedSchedule } from "./scheduling";
 import type { RejectionReasonRecord } from "./rejection-feedback";
+import { insertStoredMember, restoreLinkedMembership } from "./member-link-store";
 
 export type CandidateMeta = {
   mode: "live" | "demo";
@@ -224,23 +225,17 @@ export async function joinStoredRoom(code: string, name: string, origin: string,
   const token = randomToken();
   const tokenHash = await hashToken(token);
   const now = new Date().toISOString();
-  const inserted = await db.prepare("INSERT INTO members (id, room_code, user_id, token_hash, name, origin, origin_lng, origin_lat, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM members WHERE room_code = ?) < (SELECT target_people FROM rooms WHERE code = ?)")
-    .bind(id, code, userId ?? null, tokenHash, name, origin, originLocation?.lng ?? null, originLocation?.lat ?? null, now, now, code, code).run();
-  if ((inserted.meta.changes ?? 0) < 1) throw new Error("ROOM_FULL");
+  const resolution = await insertStoredMember(db, { id, roomCode: code, userId, tokenHash, memberToken: token, name, origin, originLocation, now });
+  if (resolution.kind === "restored") return { id: resolution.identity.memberId, token: resolution.identity.memberToken };
+  if (resolution.kind === "rejected") throw new Error("ROOM_FULL");
   await db.prepare("UPDATE rooms SET resolved_schedule_json = NULL, updated_at = ? WHERE code = ?").bind(now, code).run();
   return { id, token };
 }
 
 export async function restoreStoredMembership(roomCode: string, userId: string): Promise<{ memberId: string; memberToken: string } | null> {
-  const db = getD1();
-  const member = await db.prepare("SELECT id FROM members WHERE room_code = ? AND user_id = ? LIMIT 1")
-    .bind(roomCode, userId).first<Pick<MemberRow, "id">>();
-  if (!member) return null;
   const memberToken = randomToken();
   const tokenHash = await hashToken(memberToken);
-  const updated = await db.prepare("UPDATE members SET token_hash = ? WHERE id = ? AND room_code = ? AND user_id = ?")
-    .bind(tokenHash, member.id, roomCode, userId).run();
-  return (updated.meta.changes ?? 0) === 1 ? { memberId: member.id, memberToken } : null;
+  return restoreLinkedMembership(getD1(), roomCode, userId, { memberToken, tokenHash });
 }
 
 export async function updateStoredMember(input: {

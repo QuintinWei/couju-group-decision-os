@@ -17,8 +17,9 @@ export type JoinRoomDto = {
   status: "open" | "full";
 };
 
-type PeerMember = Omit<StoredMember, "privateCandidates" | "nominatedCandidate" | "availability" | "rejectionReasons"> & { availabilitySubmitted: boolean };
-export type ParticipantRoomDto = Omit<StoredRoom, "members"> & { members: Array<StoredMember | PeerMember>; nominationCount: number };
+type PublicMember = Omit<StoredMember, "userId">;
+type PeerMember = Omit<PublicMember, "privateCandidates" | "nominatedCandidate" | "availability" | "rejectionReasons"> & { availabilitySubmitted: boolean };
+export type ParticipantRoomDto = Omit<StoredRoom, "members"> & { members: Array<PublicMember | PeerMember>; nominationCount: number };
 
 /**
  * Safe for anyone who knows the six-character code. Deliberately omits member
@@ -49,8 +50,10 @@ export function toParticipantRoom(room: StoredRoom, memberId: string): Participa
     ...room,
     nominationCount: room.members.filter((member) => member.nominatedCandidate !== null).length,
     members: room.members.map((member) => {
-      if (member.id === memberId) return member;
-      const { privateCandidates, nominatedCandidate, availability, rejectionReasons, ...peer } = member;
+      const { userId, ...publicMember } = member;
+      void userId;
+      if (member.id === memberId) return publicMember;
+      const { privateCandidates, nominatedCandidate, availability, rejectionReasons, ...peer } = publicMember;
       void privateCandidates;
       void nominatedCandidate;
       void availability;
