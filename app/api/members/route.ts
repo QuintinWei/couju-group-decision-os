@@ -1,28 +1,43 @@
-import { getStoredRoom, joinStoredRoom, relaxStoredMemberCommute, replaceInitialCandidates, saveStoredMemberConstraints, updateStoredMember } from "../../../lib/room-store";
+import { getStoredRoom, joinStoredRoom, relaxStoredMemberCommute, replaceInitialCandidates, restoreStoredMembership, saveStoredMemberConstraints, updateStoredMember } from "../../../lib/room-store";
 import type { Candidate, Choice, PreferenceExtraction } from "../../../lib/couju";
 import { geocodeOrigin } from "../../../lib/amap";
 import { isChoiceRecord } from "../../../lib/member-submission";
 import { validateRejectionReasons, type RejectionReasonRecord } from "../../../lib/rejection-feedback";
 import { selectGroupReachableCandidates } from "../../../lib/group-candidate-intersection";
 import { GET as getCandidates } from "../candidates/route";
+import { authenticateRequestUser } from "../../../lib/request-user";
 
 export const dynamic = "force-dynamic";
 
+export async function GET(request: Request) {
+  const currentUser = await authenticateRequestUser(request);
+  if (!currentUser) return Response.json({ error: "登录状态已失效" }, { status: 401 });
+  const roomCode = cleanText(new URL(request.url).searchParams.get("roomCode"), 6).toUpperCase();
+  if (!/^[A-Z0-9]{6}$/.test(roomCode)) return Response.json({ error: "房间号无效" }, { status: 400 });
+  const identity = await restoreStoredMembership(roomCode, currentUser.id);
+  if (!identity) return Response.json({ error: "没有找到你的房间成员身份" }, { status: 404 });
+  return Response.json({ identity }, { headers: { "Cache-Control": "private, no-store" } });
+}
+
 export async function POST(request: Request) {
+  const authorization = request.headers.get("Authorization");
+  const currentUser = await authenticateRequestUser(request);
+  if (authorization !== null && !currentUser) return Response.json({ error: "登录状态已失效" }, { status: 401 });
   let body: Record<string, unknown>;
   try { body = await request.json() as Record<string, unknown>; }
   catch { return Response.json({ error: "请求内容无效" }, { status: 400 }); }
   const roomCode = cleanText(body.roomCode, 6).toUpperCase();
   const name = cleanText(body.name, 18);
+  const effectiveName = currentUser?.nickname || name;
   const origin = cleanText(body.origin, 40);
-  if (!/^[A-Z0-9]{6}$/.test(roomCode) || !name || !origin) return Response.json({ error: "请填写昵称和附近地铁站或商圈" }, { status: 400 });
+  if (!/^[A-Z0-9]{6}$/.test(roomCode) || !effectiveName || !origin) return Response.json({ error: "请填写昵称和附近地铁站或商圈" }, { status: 400 });
   try {
     const room = await getStoredRoom(roomCode);
     if (!room) return Response.json({ error: "没有找到这个房间" }, { status: 404 });
     const supplied = validLocation(body.originLocation);
     const originLocation = supplied || await geocodeOrigin(room.config.city, origin);
     if (!originLocation) return Response.json({ error: `没有识别到“${origin}”，请填写完整地铁站 / 商圈名或使用系统定位` }, { status: 422 });
-    const identity = await joinStoredRoom(roomCode, name, origin, originLocation);
+    const identity = await joinStoredRoom(roomCode, effectiveName, origin, originLocation, currentUser?.id ?? null);
     if (!identity) return Response.json({ error: "没有找到这个房间" }, { status: 404 });
     return Response.json({ identity }, { status: 201 });
   } catch (error) {

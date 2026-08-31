@@ -26,6 +26,7 @@ export type CandidateMeta = {
 
 export type StoredMember = {
   id: string;
+  userId: string | null;
   name: string;
   origin: string;
   originLocation: { lng: number; lat: number } | null;
@@ -93,6 +94,7 @@ type RoomRow = {
 
 type MemberRow = {
   id: string;
+  user_id: string | null;
   name: string;
   origin: string;
   origin_lng: number | null;
@@ -133,6 +135,7 @@ export async function createStoredRoom(input: {
   creatorName: string;
   creatorOrigin: string;
   creatorOriginLocation: { lng: number; lat: number } | null;
+  userId?: string | null;
 }) {
   if (input.candidates.length !== 12 || !hasUniqueProviderIds(input.candidates)) throw new Error("INVALID_CANDIDATES");
   const db = getD1();
@@ -147,8 +150,8 @@ export async function createStoredRoom(input: {
   await db.batch([
     db.prepare("INSERT INTO rooms (code, city, kind, date, start_time, end_time, schedule_config_json, resolved_schedule_json, target_people, candidates_json, candidate_meta_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(code, input.config.city, input.config.kind, input.config.dateRange.start, "", "", JSON.stringify({ dateRange: input.config.dateRange, preferredPeriods: input.config.preferredPeriods, durationMinutes: input.config.durationMinutes }), null, input.config.people, JSON.stringify(input.candidates), JSON.stringify(input.meta), now, now),
-    db.prepare("INSERT INTO members (id, room_code, token_hash, name, origin, origin_lng, origin_lat, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(memberId, code, tokenHash, input.creatorName, input.creatorOrigin, input.creatorOriginLocation?.lng ?? null, input.creatorOriginLocation?.lat ?? null, now, now),
+    db.prepare("INSERT INTO members (id, room_code, user_id, token_hash, name, origin, origin_lng, origin_lat, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(memberId, code, input.userId ?? null, tokenHash, input.creatorName, input.creatorOrigin, input.creatorOriginLocation?.lng ?? null, input.creatorOriginLocation?.lat ?? null, now, now),
   ]);
 
   return { code, memberId, memberToken };
@@ -158,7 +161,7 @@ export async function getStoredRoom(code: string): Promise<StoredRoom | null> {
   const db = getD1();
   const room = await db.prepare("SELECT * FROM rooms WHERE code = ? LIMIT 1").bind(code).first<RoomRow>();
   if (!room) return null;
-  const memberRows = await db.prepare("SELECT id, name, origin, origin_lng, origin_lat, budget_label, commute_label, setting, note, extraction_json, choices_json, rejection_reasons_json, submitted_at, availability_json, refresh_request_round, private_candidates_json, nominated_candidate_json FROM members WHERE room_code = ? ORDER BY created_at ASC").bind(code).all<MemberRow>();
+  const memberRows = await db.prepare("SELECT id, user_id, name, origin, origin_lng, origin_lat, budget_label, commute_label, setting, note, extraction_json, choices_json, rejection_reasons_json, submitted_at, availability_json, refresh_request_round, private_candidates_json, nominated_candidate_json FROM members WHERE room_code = ? ORDER BY created_at ASC").bind(code).all<MemberRow>();
   const scheduleConfig = safeJson<{ dateRange: RoomConfig["dateRange"]; preferredPeriods: RoomConfig["preferredPeriods"]; durationMinutes: RoomConfig["durationMinutes"] }>(room.schedule_config_json ?? null, { dateRange: { start: room.date, end: room.date }, preferredPeriods: ["evening"], durationMinutes: null });
   const resolvedSchedule = safeJson<ResolvedSchedule | null>(room.resolved_schedule_json ?? null, null);
   return {
@@ -179,6 +182,7 @@ export async function getStoredRoom(code: string): Promise<StoredRoom | null> {
     roundHistory: safeJson<RoundHistoryEntry[]>(room.round_history_json ?? null, []),
     members: memberRows.results.map((member) => ({
       id: member.id,
+      userId: member.user_id,
       name: member.name,
       origin: member.origin,
       originLocation: member.origin_lng !== null && member.origin_lat !== null ? { lng: member.origin_lng, lat: member.origin_lat } : null,
@@ -207,20 +211,36 @@ export async function getAuthenticatedStoredRoom(input: MemberAuth): Promise<Sto
   return getStoredRoom(input.roomCode);
 }
 
-export async function joinStoredRoom(code: string, name: string, origin: string, originLocation: { lng: number; lat: number } | null) {
+export async function joinStoredRoom(code: string, name: string, origin: string, originLocation: { lng: number; lat: number } | null, userId?: string | null) {
   const room = await getStoredRoom(code);
   if (!room) return null;
+  if (userId) {
+    const restored = await restoreStoredMembership(code, userId);
+    if (restored) return { id: restored.memberId, token: restored.memberToken };
+  }
   if (room.members.length >= room.config.people) throw new Error("ROOM_FULL");
   const db = getD1();
   const id = crypto.randomUUID();
   const token = randomToken();
   const tokenHash = await hashToken(token);
   const now = new Date().toISOString();
-  const inserted = await db.prepare("INSERT INTO members (id, room_code, token_hash, name, origin, origin_lng, origin_lat, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM members WHERE room_code = ?) < (SELECT target_people FROM rooms WHERE code = ?)")
-    .bind(id, code, tokenHash, name, origin, originLocation?.lng ?? null, originLocation?.lat ?? null, now, now, code, code).run();
+  const inserted = await db.prepare("INSERT INTO members (id, room_code, user_id, token_hash, name, origin, origin_lng, origin_lat, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM members WHERE room_code = ?) < (SELECT target_people FROM rooms WHERE code = ?)")
+    .bind(id, code, userId ?? null, tokenHash, name, origin, originLocation?.lng ?? null, originLocation?.lat ?? null, now, now, code, code).run();
   if ((inserted.meta.changes ?? 0) < 1) throw new Error("ROOM_FULL");
   await db.prepare("UPDATE rooms SET resolved_schedule_json = NULL, updated_at = ? WHERE code = ?").bind(now, code).run();
   return { id, token };
+}
+
+export async function restoreStoredMembership(roomCode: string, userId: string): Promise<{ memberId: string; memberToken: string } | null> {
+  const db = getD1();
+  const member = await db.prepare("SELECT id FROM members WHERE room_code = ? AND user_id = ? LIMIT 1")
+    .bind(roomCode, userId).first<Pick<MemberRow, "id">>();
+  if (!member) return null;
+  const memberToken = randomToken();
+  const tokenHash = await hashToken(memberToken);
+  const updated = await db.prepare("UPDATE members SET token_hash = ? WHERE id = ? AND room_code = ? AND user_id = ?")
+    .bind(tokenHash, member.id, roomCode, userId).run();
+  return (updated.meta.changes ?? 0) === 1 ? { memberId: member.id, memberToken } : null;
 }
 
 export async function updateStoredMember(input: {

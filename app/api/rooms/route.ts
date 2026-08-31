@@ -27,6 +27,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const authorization = request.headers.get("Authorization");
+  const currentUser = authorization === null ? null : await authenticateRequestUser(request);
+  if (authorization !== null && !currentUser) return Response.json({ error: "登录状态已失效" }, { status: 401 });
   let body: Record<string, unknown>;
   try { body = await request.json() as Record<string, unknown>; }
   catch { return Response.json({ error: "请求内容无效" }, { status: 400 }); }
@@ -35,8 +38,9 @@ export async function POST(request: Request) {
   const candidates = Array.isArray(body.candidates) ? body.candidates as Candidate[] : [];
   const meta = body.meta && typeof body.meta === "object" ? body.meta as { mode: "live" | "demo"; label: string; fetchedAt: string; disclaimer?: string } : null;
   const creatorName = cleanText(body.creatorName, 18);
+  const effectiveCreatorName = currentUser?.nickname || creatorName;
   const creatorOrigin = cleanText(body.creatorOrigin, 40);
-  if (!config || !SUPPORTED_CITIES.includes(config.city) || !["dining", "activity"].includes(config.kind) || !Number.isInteger(config.people) || config.people < 2 || config.people > 6 || candidates.length !== 12 || !hasUniqueProviderIds(candidates) || !meta || !creatorName || !creatorOrigin) {
+  if (!config || !SUPPORTED_CITIES.includes(config.city) || !["dining", "activity"].includes(config.kind) || !Number.isInteger(config.people) || config.people < 2 || config.people > 6 || candidates.length !== 12 || !hasUniqueProviderIds(candidates) || !meta || !effectiveCreatorName || !creatorOrigin) {
     return Response.json({ error: "请完整填写房间信息、昵称和出发地" }, { status: 400 });
   }
   try { validateScheduleConfig(config); }
@@ -45,7 +49,7 @@ export async function POST(request: Request) {
     const suppliedLocation = validLocation(body.creatorOriginLocation);
     const creatorOriginLocation = suppliedLocation || await geocodeOrigin(config.city, creatorOrigin);
     const { createStoredRoom } = await loadRoomStore();
-    const identity = await createStoredRoom({ config, candidates, meta, creatorName, creatorOrigin, creatorOriginLocation });
+    const identity = await createStoredRoom({ config, candidates, meta, creatorName: effectiveCreatorName, creatorOrigin, creatorOriginLocation, userId: currentUser?.id ?? null });
     return Response.json({ identity }, { status: 201 });
   } catch (error) {
     console.error("[rooms:create]", error);
@@ -71,4 +75,9 @@ function hasUniqueProviderIds(candidates: Candidate[]) {
 
 async function loadRoomStore() {
   return import("../../../lib/room-store");
+}
+
+async function authenticateRequestUser(request: Request) {
+  const auth = await import("../../../lib/request-user");
+  return auth.authenticateRequestUser(request);
 }
