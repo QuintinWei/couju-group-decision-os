@@ -21,9 +21,18 @@ export const rooms = sqliteTable("rooms", {
   index("rooms_updated_at_idx").on(table.updatedAt),
 ]);
 
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  openid: text("openid").notNull().unique(),
+  nickname: text("nickname").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const members = sqliteTable("members", {
   id: text("id").primaryKey(),
   roomCode: text("room_code").notNull().references(() => rooms.code, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id),
   tokenHash: text("token_hash").notNull(),
   name: text("name").notNull(),
   origin: text("origin").notNull(),
@@ -45,4 +54,5 @@ export const members = sqliteTable("members", {
   updatedAt: text("updated_at").notNull(),
 }, (table) => [
   index("members_room_code_idx").on(table.roomCode),
+  index("members_user_id_idx").on(table.userId),
 ]);
