@@ -134,3 +134,8 @@ export function automaticNickname(userId: string): string {
   const suffix = nicknameHash(userId).toString(36).toUpperCase().slice(-4).padStart(4, "0");
   return `微信用户 ${suffix}`;
 }
+
+export function normalizeWechatNickname(value: string): string | null {
+  const nickname = value.replace(/[<>]/g, "").trim();
+  return nickname && nickname.length <= 18 ? nickname : null;
+}

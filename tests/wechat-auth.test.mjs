@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import * as wechatAuth from "../lib/wechat-auth.ts";
 import {
   automaticNickname,
   createAccessToken,
@@ -44,4 +45,9 @@ test("automatic nickname is stable and contains no openid", () => {
   assert.equal(automaticNickname("user-123"), automaticNickname("user-123"));
   assert.match(automaticNickname("user-123"), /^微信用户 [A-Z0-9]{4}$/);
   assert.doesNotMatch(automaticNickname("user-123"), /user-123/);
+});
+
+test("nickname normalization removes angle brackets before trimming and validating", () => {
+  assert.equal(wechatAuth.normalizeWechatNickname?.("<   >"), null);
+  assert.equal(wechatAuth.normalizeWechatNickname?.("  <小> 明< >  "), "小 明");
 });

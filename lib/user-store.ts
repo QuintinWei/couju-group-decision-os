@@ -1,5 +1,5 @@
 import { getD1 } from "../db";
-import { automaticNickname } from "./wechat-auth";
+import { automaticNickname, normalizeWechatNickname } from "./wechat-auth";
 
 export type WechatUser = {
   id: string;
@@ -45,8 +45,8 @@ export async function findWechatUserById(id: string): Promise<WechatUser | null>
 }
 
 export async function updateWechatNickname(userId: string, value: string): Promise<WechatUser | null> {
-  const nickname = value.trim().replace(/[<>]/g, "");
-  if (!nickname || nickname.length > 18) throw new Error("INVALID_NICKNAME");
+  const nickname = normalizeWechatNickname(value);
+  if (!nickname) throw new Error("INVALID_NICKNAME");
   const now = new Date().toISOString();
   await getD1().prepare("UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?")
     .bind(nickname, now, userId)
