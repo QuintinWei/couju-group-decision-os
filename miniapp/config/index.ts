@@ -7,6 +7,7 @@ import prodConfig from "./prod";
 type WebpackMerge = (...configs: Array<object | null | undefined>) => IProjectConfig<"webpack5">;
 
 export default defineConfig<"webpack5">(async (merge: WebpackMerge) => {
+  const apiBase = process.env.TARO_APP_API_BASE?.trim() ?? "";
   const baseConfig: IProjectConfig<"webpack5"> = {
     projectName: "couju-miniapp",
     date: "2026-08-31",
@@ -20,6 +21,9 @@ export default defineConfig<"webpack5">(async (merge: WebpackMerge) => {
     outputRoot: "dist",
     framework: "react",
     compiler: "webpack5",
+    env: {
+      TARO_APP_API_BASE: JSON.stringify(apiBase),
+    },
     plugins: [],
     copy: { patterns: [], options: {} },
     mini: {

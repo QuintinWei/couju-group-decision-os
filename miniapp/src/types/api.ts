@@ -75,7 +75,6 @@ export type RejectionReason = {
 
 export type ParticipantRoom = {
   code: string;
-  creatorId: string;
   config: {
     kind: DecisionKind;
     city: string;
@@ -90,7 +89,6 @@ export type ParticipantRoom = {
   };
   candidates: Candidate[];
   currentRound: number;
-  hasResult: boolean;
   members: Array<{
     id: string;
     name: string;
@@ -102,7 +100,7 @@ export type ParticipantRoom = {
     choices: Record<string, Choice>;
     rejectionReasons?: Record<string, RejectionReason>;
     privateCandidates?: Candidate[];
-    nominatedCandidate?: string | null;
+    nominatedCandidate?: Candidate | null;
   }>;
   nominationCount: number;
   canPrivateDiscover?: string[];
