@@ -1,0 +1,35 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  automaticNickname,
+  createAccessToken,
+  exchangeWechatCode,
+  verifyAccessToken,
+} from "../lib/wechat-auth.ts";
+
+test("wechat code is exchanged without exposing the app secret", async () => {
+  let requested = "";
+  const result = await exchangeWechatCode("one-use-code", {
+    appId: "wx7162630074a237b6",
+    appSecret: "server-secret",
+  }, async (url) => {
+    requested = String(url);
+    return Response.json({ openid: "openid-1", session_key: "never-return-this" });
+  });
+  assert.equal(result.openid, "openid-1");
+  assert.match(requested, /js_code=one-use-code/);
+  assert.deepEqual(Object.keys(result), ["openid"]);
+});
+
+test("signed access tokens reject tampering and expiry", async () => {
+  const token = await createAccessToken("user-1", 1_000, "token-secret");
+  assert.deepEqual(await verifyAccessToken(token, 1_100, "token-secret"), { userId: "user-1" });
+  assert.equal(await verifyAccessToken(`${token}x`, 1_100, "token-secret"), null);
+  assert.equal(await verifyAccessToken(token, 1_000 + 30 * 24 * 60 * 60 + 1, "token-secret"), null);
+});
+
+test("automatic nickname is stable and contains no openid", () => {
+  assert.equal(automaticNickname("user-123"), automaticNickname("user-123"));
+  assert.match(automaticNickname("user-123"), /^微信用户 [A-Z0-9]{4}$/);
+  assert.doesNotMatch(automaticNickname("user-123"), /user-123/);
+});
