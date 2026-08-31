@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev:weapp": "taro build --type weapp --watch",
-    "build:weapp": "taro build --type weapp"
+    "build:weapp": "taro build --type weapp",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@tarojs/components": "4.2.1",
@@ -22,6 +23,7 @@
     "@tarojs/cli": "4.2.1",
     "@tarojs/webpack5-runner": "4.2.1",
     "@babel/preset-react": "7.24.7",
+    "@types/node": "22.19.19",
     "@types/react": "18.3.12",
     "babel-preset-taro": "4.2.1",
     "sass": "1.83.0",

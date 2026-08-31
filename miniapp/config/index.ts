@@ -1,10 +1,13 @@
 import { defineConfig } from "@tarojs/cli";
+import type { IProjectConfig } from "@tarojs/taro/types/compile";
 
 import devConfig from "./dev";
 import prodConfig from "./prod";
 
-export default defineConfig(async (merge) => {
-  const baseConfig = {
+type WebpackMerge = (...configs: Array<object | null | undefined>) => IProjectConfig<"webpack5">;
+
+export default defineConfig<"webpack5">(async (merge: WebpackMerge) => {
+  const baseConfig: IProjectConfig<"webpack5"> = {
     projectName: "couju-miniapp",
     date: "2026-08-31",
     designWidth: 750,
