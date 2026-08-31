@@ -1,0 +1,28 @@
+{
+  "miniprogramRoot": "dist/",
+  "projectname": "couju-miniapp",
+  "description": "Couju group decision mini program",
+  "appid": "wx7162630074a237b6",
+  "compileType": "miniprogram",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "urlCheck": true,
+    "compileHotReLoad": false,
+    "coverView": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    },
+    "useCompilerPlugins": ["typescript"],
+    "useMultiFrameRuntime": true,
+    "useApiHook": true,
+    "useApiHostProcess": true,
+    "ignoreUploadUnusedFiles": true
+  },
+  "condition": {},
+  "libVersion": "3.7.8"
+}

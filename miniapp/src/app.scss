@@ -1,0 +1,20 @@
+page {
+  --ink: #202124;
+  --purple: #7654d9;
+  --blue: #3d8bfd;
+  --orange: #ff9d3d;
+  --green: #38b26d;
+  --surface: #f7f5ff;
+  --safe-area-top: env(safe-area-inset-top);
+  --safe-area-bottom: env(safe-area-inset-bottom);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 16px;
+  min-height: 100%;
+}
+
+view,
+text,
+button {
+  box-sizing: border-box;
+}

@@ -2,6 +2,9 @@
   "name": "couju-group-decision-os",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "miniapp"
+  ],
   "engines": {
     "node": ">=22.13.0"
   },
@@ -11,7 +14,9 @@
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --experimental-strip-types --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "miniapp:dev": "npm --workspace miniapp run dev:weapp",
+    "miniapp:build": "npm --workspace miniapp run build:weapp"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

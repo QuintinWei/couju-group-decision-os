@@ -42,6 +42,9 @@ tsconfig.tsbuildinfo
 .vercel
 
 /dist/
+/miniapp/dist/
+/miniapp/node_modules/
+/miniapp/.swc/
 /.wrangler/
 /outputs/
 /work/
