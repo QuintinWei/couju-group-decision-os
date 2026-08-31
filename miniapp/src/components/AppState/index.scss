@@ -1,0 +1,32 @@
+.app-state {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 48px;
+  text-align: center;
+}
+
+.app-state__title {
+  color: var(--ink);
+  font-size: 40px;
+  font-weight: 700;
+}
+
+.app-state__message {
+  color: #6b6b78;
+  font-size: 28px;
+  line-height: 1.6;
+}
+
+.app-state__retry {
+  background: var(--purple);
+  border-radius: 999px;
+  color: #fff;
+  font-size: 30px;
+  line-height: 88px;
+  margin: 12px 0 0;
+  width: 240px;
+}
