@@ -49,7 +49,15 @@ export function createMembersService({ request, saveMembership }: { request: Api
     });
   }
 
-  return { restoreMembership, getParticipantRoom, submitAvailability, submitConstraints };
+  async function relaxCommute(membership: Membership, expectedRound: number, minutes: number) {
+    return request<{ ok: true }>("/api/members", {
+      method: "PATCH",
+      membership,
+      data: { action: "relax-commute", expectedRound, minutes },
+    });
+  }
+
+  return { restoreMembership, getParticipantRoom, submitAvailability, submitConstraints, relaxCommute };
 }
 
 export async function resolveRoomMembership(

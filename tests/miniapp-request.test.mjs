@@ -47,6 +47,21 @@ test("request passes the configured endpoint, timeout, bearer token, and server 
   }]);
 });
 
+test("AI callers can extend the transport timeout beyond the default", async () => {
+  const calls = [];
+  const apiRequest = createApiRequest({
+    apiBase: "https://api.example.test",
+    store: createSessionStore(createTaroStorage()),
+    request: async (options) => {
+      calls.push(options);
+      return { statusCode: 200, data: { ok: true } };
+    },
+  });
+
+  await apiRequest("/api/insights", { method: "POST", data: {}, timeout: 20_000 });
+  assert.equal(calls[0].timeout, 20_000);
+});
+
 test("request rejects a missing configured API endpoint before invoking Taro", async () => {
   const store = createSessionStore(createTaroStorage());
   let invoked = false;

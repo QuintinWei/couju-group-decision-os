@@ -6,6 +6,7 @@ import AppState from "../../components/AppState";
 import BrandHeader from "../../components/BrandHeader";
 import PrimaryButton from "../../components/PrimaryButton";
 import { createVisibleRoomPoller } from "../../domain/room-polling.ts";
+import { roomShareCard } from "../../domain/result-action.ts";
 import { memberSetupProgress, nextRequiredPage, type RoomPage } from "../../domain/room-stage.ts";
 import { normalizeRoomCode } from "../../domain/session.ts";
 import { getParticipantRoom, resolveRoomMembership } from "../../services/members.ts";
@@ -57,10 +58,7 @@ export default function RoomPage() {
   useDidHide(() => pollerRef.current?.stop());
   useUnload(() => pollerRef.current?.stop());
 
-  useShareAppMessage(() => ({
-    title: room?.config.kind === "activity" ? "一起决定周末去哪玩" : "一起决定这顿饭吃什么",
-    path: `/pages/home/index?room=${roomCode}`,
-  }));
+  useShareAppMessage(() => roomShareCard(roomCode, room?.config.kind ?? "activity"));
 
   if (loading) return <AppState title="正在进入房间" message="同步大家的最新进度…" />;
   if (!room || !membership) return <AppState title="暂时无法进入房间" message={message} onRetry={() => void refresh()} />;

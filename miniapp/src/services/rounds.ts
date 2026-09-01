@@ -1,4 +1,11 @@
 import { createRoundsService } from "./rounds-core.ts";
 import { apiRequest } from "./request.ts";
 
-export const { submitSharedRound } = createRoundsService({ request: apiRequest });
+export const {
+  advanceRound,
+  loadExplanation,
+  loadRoundInsight,
+  nominatePrivateCandidate,
+  requestPrivateDiscovery,
+  submitSharedRound,
+} = createRoundsService({ request: apiRequest });

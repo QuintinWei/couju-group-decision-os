@@ -8,6 +8,7 @@ export type ApiRequestOptions = {
   data?: Record<string, unknown>;
   header?: Record<string, string>;
   membership?: Membership | null;
+  timeout?: number;
 };
 
 export type TaroRequestOptions = {
@@ -38,7 +39,7 @@ export function createApiRequest({ apiBase, request, store }: { apiBase: string 
       url: apiUrl(apiBase, path),
       method: options.method ?? "GET",
       data: withMembership(options.data, membership),
-      timeout: requestTimeout,
+      timeout: options.timeout ?? requestTimeout,
       header: {
         Accept: "application/json",
         ...(options.data ? { "Content-Type": "application/json" } : {}),

@@ -2,7 +2,7 @@ import { createMembersService, resolveRoomMembership as resolveRoomMembershipCor
 import { apiRequest } from "./request.ts";
 import { loadMembership, saveMembership } from "../store/session.ts";
 
-export const { getParticipantRoom, restoreMembership, submitAvailability, submitConstraints } = createMembersService({
+export const { getParticipantRoom, relaxCommute, restoreMembership, submitAvailability, submitConstraints } = createMembersService({
   request: apiRequest,
   saveMembership,
 });

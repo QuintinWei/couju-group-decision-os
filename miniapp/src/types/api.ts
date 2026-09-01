@@ -117,8 +117,6 @@ export type ParticipantRoom = {
     refreshRequestRound: number | null;
   }>;
   nominationCount: number;
-  canPrivateDiscover?: string[];
-  canAdvance?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -128,4 +126,10 @@ export type RoundInsight = {
   learned: string;
   conflict: string;
   nextRound: string;
+};
+
+export type AiExplanation = {
+  headline: string;
+  reasoning: string;
+  tradeoff: string;
 };
