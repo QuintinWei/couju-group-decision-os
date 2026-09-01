@@ -1,0 +1,89 @@
+.profile-nickname {
+  background: #fff;
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  margin-top: 22px;
+  padding: 20px;
+}
+
+.profile-nickname__heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.profile-nickname__label {
+  color: #6b6673;
+  flex: none;
+  font-size: 28px;
+}
+
+.profile-nickname__current {
+  font-size: 32px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.profile-nickname__hint {
+  color: #77717e;
+  font-size: 26px;
+  line-height: 1.45;
+  margin-top: 10px;
+}
+
+.profile-nickname__input {
+  background: #f3f1f8;
+  border-radius: 12px;
+  font-size: 32px;
+  margin-top: 14px;
+  min-height: 104px;
+  padding: 0 18px;
+  width: 100%;
+}
+
+.profile-nickname__actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.profile-nickname__cancel,
+.profile-nickname__confirm {
+  align-items: center;
+  border: 0;
+  border-radius: 14px;
+  display: flex;
+  flex: 1;
+  font-size: 29px;
+  font-weight: 800;
+  justify-content: center;
+  line-height: 1.2;
+  margin: 0;
+  min-height: 104px;
+  padding: 0 14px;
+}
+
+.profile-nickname__cancel::after,
+.profile-nickname__confirm::after {
+  border: 0;
+}
+
+.profile-nickname__cancel {
+  background: #f0edf7;
+  color: #625d6c;
+}
+
+.profile-nickname__confirm {
+  background: #e5dcff;
+  color: #563bb5;
+}
+
+.profile-nickname__message {
+  color: #7654d9;
+  font-size: 27px;
+  line-height: 1.45;
+  margin-top: 12px;
+}

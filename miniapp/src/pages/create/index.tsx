@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import BrandHeader from "../../components/BrandHeader";
 import PrimaryButton from "../../components/PrimaryButton";
+import ProfileNickname from "../../components/ProfileNickname";
 import { activityTendencies, diningTendencies, initialCreateDraft, supportedCities, toggleTendencySelection, type CreateDraft, type DiscoveryMode, type DurationChoice, type TimePeriod } from "../../domain/create-room.ts";
 import { locateCurrentOrigin } from "../../services/location.ts";
 import { createRoom } from "../../services/rooms.ts";
@@ -53,9 +54,9 @@ export default function CreatePage() {
 
   return <View className="create-page">
     <BrandHeader eyebrow={draft.kind === "dining" ? "DINNER" : "WEEKEND"} title={draft.kind === "dining" ? "发起一顿饭" : "发起一次出游"} detail="先定个大概，具体时间由大家的空闲时间决定。" />
-    <View className="profile-row"><Text>当前昵称</Text><Text>{loadSession()?.user.nickname || "微信用户"}</Text><Input className="nickname-input" type="nickname" placeholder="使用微信昵称（可选）" /></View>
+    <ProfileNickname />
     <View className="form-card">
-      <Text className="field-label">城市</Text><Picker mode="selector" range={[...supportedCities]} value={supportedCities.indexOf(draft.city)} onChange={(event) => update("city", supportedCities[Number(event.detail.value)])}><View className="picker-value">{draft.city}　›</View></Picker>
+      <Text className="field-label">城市</Text><Picker mode="selector" range={[...supportedCities]} value={supportedCities.indexOf(draft.city)} onChange={(event) => update("city", supportedCities[Number(event.detail.value)])}><View className="picker-value">{draft.city} ›</View></Picker>
       <Text className="field-label">从哪里出发</Text><View className="location-row"><Input className="form-input" value={draft.origin} maxlength={40} placeholder="地铁站 / 商圈" onInput={(event) => { update("origin", event.detail.value); update("originLocation", null); }} /><Button className="location-button" loading={locating} onClick={() => void locate()}>定位</Button></View>
       <View className="date-row"><View className="date-field"><Text className="field-label">最早日期</Text><Picker mode="date" value={draft.dateRange.start} onChange={(event) => update("dateRange", { ...draft.dateRange, start: event.detail.value })}><View className="picker-value">{draft.dateRange.start}</View></Picker></View><View className="date-field"><Text className="field-label">最晚日期</Text><Picker mode="date" start={draft.dateRange.start} value={draft.dateRange.end} onChange={(event) => update("dateRange", { ...draft.dateRange, end: event.detail.value })}><View className="picker-value">{draft.dateRange.end}</View></Picker></View></View>
       <Text className="field-label">大概什么时段？可多选</Text><ChoiceRow options={periodOptions} selected={draft.preferredPeriods} onToggle={(value) => togglePeriod(value as TimePeriod)} />

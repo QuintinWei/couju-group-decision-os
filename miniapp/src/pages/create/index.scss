@@ -1,12 +1,10 @@
 @use "../home/index.scss";
 
-.profile-row, .form-card { background: #fff; border-radius: 18px; margin-top: 22px; padding: 20px; }
-.profile-row { align-items: center; display: flex; flex-wrap: wrap; font-size: 32px; gap: 12px; justify-content: space-between; }
-.nickname-input { color: #806bc9; font-size: 32px; text-align: right; width: 260px; }
+.form-card { background: #fff; border-radius: 18px; margin-top: 22px; padding: 20px; }
 .field-label { display: block; margin-top: 18px; }.form-card .field-label:first-child { margin-top: 0; }
-.picker-value { background: #f3f1f8; border-radius: 12px; font-size: 32px; margin-top: 10px; padding: 20px 18px; }
+.picker-value { align-items: center; background: #f3f1f8; border-radius: 12px; display: flex; font-size: 32px; margin-top: 10px; min-height: 104px; padding: 20px 18px; }
 .date-row { display: flex; gap: 12px; }.date-field { flex: 1; min-width: 0; }
 .choice-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
 .choice-chip { background: #f0edf7; border: 0; border-radius: 999px; color: #514e59; font-size: 32px; margin: 0; padding: 13px 18px; }.choice-chip::after, .stepper-button::after { border: 0; }.choice-chip-selected { background: #e1d8ff; color: #563bb5; font-weight: 700; }
 .idea-panel { background: #faf8ff; border-radius: 14px; margin-top: 18px; padding: 0 14px 16px; }.idea-panel .form-input { margin-top: 16px; }
-.people-row { align-items: center; display: flex; font-size: 30px; font-weight: 700; gap: 26px; justify-content: center; margin-top: 12px; }.stepper-button { background: #eee8ff; border-radius: 50%; color: var(--purple); font-size: 34px; height: 68px; line-height: 64px; margin: 0; padding: 0; width: 68px; }
+.people-row { align-items: center; display: flex; font-size: 30px; font-weight: 700; gap: 26px; justify-content: center; margin-top: 12px; }.stepper-button { background: #eee8ff; border-radius: 50%; color: var(--purple); font-size: 34px; height: 104px; line-height: 100px; margin: 0; padding: 0; width: 104px; }

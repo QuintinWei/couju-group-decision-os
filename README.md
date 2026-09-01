@@ -134,6 +134,21 @@ npm install
 npm run dev
 ```
 
+### 微信小程序开发者预览
+
+小程序使用 Taro 构建，构建时需要写入一个可由微信开发者工具访问的服务端地址：
+
+```bash
+npm install
+TARO_APP_API_BASE=https://your-api.example.com npm run miniapp:build
+```
+
+构建产物位于 `miniapp/dist/`。在微信开发者工具中导入仓库内的 `miniapp` 目录；该目录的 `project.config.json` 已将 `miniprogramRoot` 指向 `dist/`，AppID `wx7162630074a237b6` 也已配置。开发联调时，如果测试域名尚未加入微信公众平台的 request 合法域名，可在微信开发者工具的本地设置中临时关闭 request 域名校验；正式提交前仍需配置合法 HTTPS 域名。
+
+小程序对应的服务端必须配置 `WECHAT_APP_ID`（值为上述 AppID）、`WECHAT_APP_SECRET` 和 `WECHAT_TOKEN_SECRET`。密钥只放在服务端环境中，不写入仓库或小程序构建；空值模板见 `.env.example`。
+
+`TARO_APP_API_BASE` 是小程序构建时使用的公开服务地址，不是密钥。当前仅提供开发者预览，尚未声称完成微信正式发布、提审或真机验收。
+
 可选服务端配置：
 
 ```text
@@ -153,4 +168,4 @@ npm test
 
 ## 项目状态
 
-当前版本为可跨设备体验的多人 MVP：能够创建房间、收集成员时间与个人边界、生成多人可达候选、完成共享滑卡、多轮反馈，并输出一个可解释的共同方案。
+当前 H5 版本为可跨设备体验的多人 MVP：能够创建房间、收集成员时间与个人边界、生成多人可达候选、完成共享滑卡、多轮反馈，并输出一个可解释的共同方案。微信小程序处于开发者预览阶段，正式发布、提审与真机验收仍待完成。

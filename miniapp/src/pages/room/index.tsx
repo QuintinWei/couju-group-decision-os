@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from "react";
 import AppState from "../../components/AppState";
 import BrandHeader from "../../components/BrandHeader";
 import PrimaryButton from "../../components/PrimaryButton";
+import ProfileNickname from "../../components/ProfileNickname";
 import { createVisibleRoomPoller } from "../../domain/room-polling.ts";
 import { roomShareCard } from "../../domain/result-action.ts";
 import { memberSetupProgress, nextRequiredPage, type RoomPage } from "../../domain/room-stage.ts";
@@ -70,6 +71,7 @@ export default function RoomPage() {
 
   return <View className="room-page">
     <BrandHeader eyebrow={room.config.kind === "dining" ? "DINNER ROOM" : "WEEKEND ROOM"} title={room.config.kind === "dining" ? "这顿饭吃什么" : "周末去哪玩"} detail={`${room.config.city} · 第 ${room.currentRound} 轮`} />
+    <ProfileNickname />
 
     <View className="room-code-card">
       <View><Text className="room-code-label">房间码</Text><Text className="room-code">{room.code}</Text></View>

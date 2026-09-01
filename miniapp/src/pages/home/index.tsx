@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import BrandHeader from "../../components/BrandHeader";
 import PrimaryButton from "../../components/PrimaryButton";
+import ProfileNickname from "../../components/ProfileNickname";
 import { resolveLaunchRoom } from "../../domain/session.ts";
 import { locateCurrentOrigin } from "../../services/location.ts";
 import { joinRoom } from "../../services/rooms.ts";
@@ -59,6 +60,7 @@ export default function HomePage() {
 
   return <View className="home-page">
     <BrandHeader eyebrow="COUJU" title="不知道干啥？别再纠结了" detail="叫上朋友，一起决定吃什么、玩什么。" />
+    <ProfileNickname />
     <View className="home-choice-list">
       <Button className="choice-card choice-card-orange" onClick={() => startCreate("dining")}>
         <Text className="choice-icon">🍜</Text><Text className="choice-card-title">一起吃饭</Text><Text className="choice-card-copy">选个都愿意去的地方</Text>

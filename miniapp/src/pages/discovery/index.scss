@@ -1,4 +1,4 @@
-.discovery-page { display: flex; flex-direction: column; min-height: 100vh; padding: calc(36px + var(--safe-area-top)) 24px calc(220px + var(--safe-area-bottom)); }
+.discovery-page { display: flex; flex-direction: column; min-height: 100vh; padding: calc(36px + var(--safe-area-top)) 24px calc(284px + var(--safe-area-bottom)); }
 .discovery-private-note { background: #ece7ff; border-radius: 20px; color: #5d4b9d; display: flex; flex-direction: column; font-size: 27px; gap: 8px; line-height: 1.45; margin-top: 24px; padding: 20px; }
 .discovery-lock { font-size: 29px; font-weight: 850; }
 .discovery-grid { display: flex; flex-direction: column; gap: 18px; margin-top: 22px; }
@@ -8,7 +8,7 @@
 .discovery-image { flex: 0 0 210px; height: 210px; width: 210px; }
 .discovery-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; padding: 22px 18px 58px; }
 .discovery-type { color: #6a52bd; font-size: 25px; font-weight: 800; }
-.discovery-name { display: block; font-size: 34px; font-weight: 850; line-height: 1.25; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.discovery-name { display: block; font-size: 34px; font-weight: 850; line-height: 1.25; margin-top: 5px; overflow-wrap: anywhere; white-space: normal; }
 .discovery-facts { color: #77717e; display: block; font-size: 26px; line-height: 1.35; margin-top: 10px; }
 .discovery-select { bottom: 15px; color: #6950bd; font-size: 26px; font-weight: 800; left: 228px; position: absolute; }
 .discovery-message { background: #fff1ef; border-radius: 16px; color: #9a453d; font-size: 27px; line-height: 1.45; margin-top: 18px; padding: 16px; }

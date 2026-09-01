@@ -11,10 +11,28 @@ page {
   color: var(--ink);
   font-size: 32px;
   min-height: 100%;
+  overflow-x: hidden;
+  width: 100%;
 }
 
 view,
 text,
-button {
+button,
+input,
+image {
   box-sizing: border-box;
+  max-width: 100%;
+}
+
+button,
+input {
+  min-height: 104px;
+}
+
+.candidate-name,
+.discovery-name,
+.result-winner-name {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
 }
