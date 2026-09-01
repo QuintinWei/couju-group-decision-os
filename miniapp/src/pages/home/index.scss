@@ -1,68 +1,16 @@
-.home-page {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  padding: calc(48px + var(--safe-area-top)) 24px calc(32px + var(--safe-area-bottom));
-}
-
-.home-logo {
-  align-items: center;
-  background: var(--purple);
-  border-radius: 20px;
-  color: #fff;
-  display: flex;
-  font-size: 68px;
-  font-weight: 800;
-  height: 64px;
-  justify-content: center;
-  width: 64px;
-}
-
-.home-title {
-  font-size: 72px;
-  font-weight: 800;
-  margin-top: 28px;
-}
-
-.home-subtitle {
-  color: #6b6c73;
-  font-size: 36px;
-  margin-top: 8px;
-}
-
-.choice-card {
-  border-radius: 20px;
-  display: flex;
-  flex-direction: column;
-  margin-top: 20px;
-  padding: 24px;
-}
-
-.choice-card-purple {
-  background: #ebe5ff;
-  border: 2px solid var(--purple);
-}
-
-.choice-card-blue {
-  background: #e6f0ff;
-  border: 2px solid var(--blue);
-}
-
-.choice-card-title {
-  font-size: 44px;
-  font-weight: 700;
-}
-
-.choice-card-copy {
-  color: #5e5f66;
-  font-size: 32px;
-  margin-top: 6px;
-}
-
-.loading-label {
-  color: #777880;
-  font-size: 32px;
-  margin-top: auto;
-  padding-top: 32px;
-  text-align: center;
-}
+.home-page, .create-page { display: flex; flex-direction: column; min-height: 100vh; padding: calc(36px + var(--safe-area-top)) 24px calc(24px + var(--safe-area-bottom)); }
+.brand-header { align-items: flex-start; display: flex; gap: 18px; }
+.brand-mark { align-items: center; background: var(--purple); border-radius: 18px; color: #fff; display: flex; font-size: 44px; font-weight: 800; height: 58px; justify-content: center; width: 58px; }
+.brand-copy { display: flex; flex: 1; flex-direction: column; }
+.brand-eyebrow { color: var(--purple); font-size: 32px; font-weight: 800; letter-spacing: 2px; }
+.brand-title { font-size: 43px; font-weight: 800; line-height: 1.2; margin-top: 4px; }
+.brand-detail { color: #676778; font-size: 32px; line-height: 1.45; margin-top: 8px; }
+.home-choice-list { display: flex; flex-direction: column; gap: 16px; margin-top: 36px; }
+.choice-card { border: 0; border-radius: 22px; box-sizing: border-box; color: var(--ink); display: flex; flex-direction: column; min-height: 154px; padding: 24px 28px; text-align: left; width: 100%; }
+.choice-card::after, .primary-button::after, .link-button::after, .location-button::after { border: 0; }
+.choice-card-orange { background: #ffe3c2; }.choice-card-purple { background: #e8dfff; }
+.choice-icon { font-size: 36px; }.choice-card-title { font-size: 38px; font-weight: 800; margin-top: 4px; }.choice-card-copy { color: #5c5964; font-size: 32px; margin-top: 4px; }
+.join-card { background: #fff; border-radius: 20px; margin-top: 24px; padding: 20px; }.join-heading { align-items: center; display: flex; font-size: 32px; font-weight: 700; justify-content: space-between; }
+.link-button { background: transparent; color: var(--purple); font-size: 32px; margin: 0; padding: 0 6px; }.room-code-input, .form-input { background: #f3f1f8; border-radius: 12px; box-sizing: border-box; font-size: 32px; height: 86px; margin-top: 14px; padding: 0 18px; width: 100%; }
+.join-panel { border-top: 1px solid #eceaf1; display: flex; flex-direction: column; margin-top: 16px; padding-top: 16px; }.field-label { font-size: 32px; font-weight: 700; }.location-row { align-items: center; display: flex; gap: 10px; }.location-row .form-input { flex: 1; }
+.location-button { background: #eee8ff; color: #5c43b3; font-size: 32px; height: 86px; line-height: 86px; margin: 14px 0 0; padding: 0 18px; }.primary-button { background: var(--purple); border-radius: 14px; color: #fff; font-size: 32px; font-weight: 700; margin-top: 18px; min-height: 88px; width: 100%; }.form-message { color: #b3443a; font-size: 32px; line-height: 1.4; margin-top: 12px; }
