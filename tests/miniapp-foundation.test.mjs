@@ -16,6 +16,25 @@ test("miniapp is a native Taro workspace with the correct AppID", async () => {
   assert.doesNotMatch(appConfig, /web-view/);
 });
 
+test("miniapp declares the WeChat location privacy capability needed by explicit location requests", async () => {
+  const appConfig = await readFile(new URL("../miniapp/src/app.config.ts", import.meta.url), "utf8");
+
+  assert.match(appConfig, /requiredPrivateInfos:\s*\[\s*["']getLocation["']\s*\]/);
+  assert.match(appConfig, /["']scope\.userLocation["']:\s*\{\s*desc:\s*["'][^"']+["']/);
+});
+
+test("home restores a shared room code into the join flow while create carries its selected kind", async () => {
+  const [home, create] = await Promise.all([
+    readFile(new URL("../miniapp/src/pages/home/index.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../miniapp/src/pages/create/index.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(home, /resolveLaunchRoom\(query\)/);
+  assert.match(home, /setJoinOpen\(true\)/);
+  assert.match(home, /pages\/create\/index\?kind=/);
+  assert.match(create, /initialCreateDraft\(query\.kind === "activity" \? "activity" : "dining"\)/);
+});
+
 test("miniapp shell preserves 16px minimum logical text after px transformation", async () => {
   const [appScss, homeScss] = await Promise.all([
     readFile(new URL("../miniapp/src/app.scss", import.meta.url), "utf8"),

@@ -20,3 +20,12 @@
 
 - Node emits existing module-type performance warnings while directly loading nested miniapp TypeScript test modules. They do not affect the TypeScript check, Taro build, or test results.
 - The optional nickname input is displayed without becoming a creation field; its profile-update behavior is intentionally owned by Task 10.
+
+## Review follow-up
+
+- Declared `requiredPrivateInfos: ["getLocation"]` and a `permission.scope.userLocation.desc` in the app configuration. The generated `miniapp/dist/app.json` was inspected after a fresh build and contains both fields.
+- Added a contract test for the location privacy declaration and a page-source contract for shared room-code prefill and create-kind navigation.
+- Calendar validation now rejects normalized invalid dates and blocks ranges longer than the server's inclusive 14-day limit before any origin resolution or candidate request.
+- Tendency selection is capped at six in the create UI with an explicit message; service code no longer silently truncates selections. The room POST test asserts selected periods and duration are preserved.
+
+Follow-up verification: focused miniapp tests (16 passing), typecheck, miniapp build, generated `app.json` location declaration check, and full `npm test` (146 passing).

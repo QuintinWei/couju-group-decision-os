@@ -84,7 +84,7 @@ function candidatePath(draft: CreateDraft, location: GeoPoint, seed: string) {
     ["seed", seed],
     ["location", `${location.lng},${location.lat}`],
   ];
-  if (focused) params.push(["interests", draft.tendencies.slice(0, 6).join(",")]);
+  if (focused) params.push(["interests", draft.tendencies.join(",")]);
   const avoid = draft.avoid.split(/[，,、;；]+/).map((item) => item.trim()).filter(Boolean);
   if (draft.discoveryMode === "ideas" && avoid.length) params.push(["avoid", avoid.join(",")]);
   return `/api/candidates?${params.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join("&")}`;

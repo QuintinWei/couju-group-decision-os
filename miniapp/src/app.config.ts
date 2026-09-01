@@ -9,6 +9,12 @@ export default defineAppConfig({
     "pages/discovery/index",
     "pages/result/index",
   ],
+  requiredPrivateInfos: ["getLocation"],
+  permission: {
+    "scope.userLocation": {
+      desc: "用于根据你的出发地估算通勤时间并推荐合适地点",
+    },
+  },
   window: {
     navigationBarBackgroundColor: "#F7F5FF",
     navigationBarTextStyle: "black",

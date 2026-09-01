@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   initialCreateDraft,
+  toggleTendencySelection,
   validateCreateDraft,
 } from "../miniapp/src/domain/create-room.ts";
 import { createRoomsService } from "../miniapp/src/services/rooms-core.ts";
@@ -60,6 +61,25 @@ test("creation reports the first missing required field", () => {
   assert.deepEqual(validateCreateDraft({ ...validDraft(), people: 7 }), { ok: false, message: "请选择 2–6 人" });
 });
 
+test("creation rejects calendar-normalized dates and ranges over fourteen calendar days", () => {
+  assert.deepEqual(
+    validateCreateDraft({ ...validDraft(), dateRange: { start: "2026-02-29", end: "2026-02-29" } }),
+    { ok: false, message: "请选择有效日期范围" },
+  );
+  assert.deepEqual(
+    validateCreateDraft({ ...validDraft(), dateRange: { start: "2026-09-01", end: "2026-09-15" } }),
+    { ok: false, message: "日期范围最多 14 天" },
+  );
+});
+
+test("idea tendencies stop at six and explain why the seventh selection was not added", () => {
+  const selected = ["本帮菜", "日料", "火锅", "烤肉", "粤菜", "西餐"];
+  assert.deepEqual(toggleTendencySelection(selected, "素食"), {
+    tendencies: selected,
+    message: "最多选择 6 个想法",
+  });
+});
+
 test("uncertain duration remains a valid explicit duration choice", () => {
   assert.deepEqual(validateCreateDraft({ ...validDraft(), durationMinutes: null }), { ok: true });
 });
@@ -97,6 +117,8 @@ test("creation geocodes first, fetches exactly twelve unique candidates, and omi
   assert.equal(calls[2].options.data.candidates.length, 12);
   assert.equal("creatorName" in calls[2].options.data, false);
   assert.equal(calls[2].options.data.creatorOrigin, "静安寺");
+  assert.deepEqual(calls[2].options.data.config.preferredPeriods, ["evening"]);
+  assert.equal(calls[2].options.data.config.durationMinutes, 180);
   assert.deepEqual(membership, { roomCode: "AB12CD", memberId: "member-one", memberToken: "member-secret" });
 });
 

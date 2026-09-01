@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import BrandHeader from "../../components/BrandHeader";
 import PrimaryButton from "../../components/PrimaryButton";
-import { activityTendencies, diningTendencies, initialCreateDraft, supportedCities, type CreateDraft, type DiscoveryMode, type DurationChoice, type TimePeriod } from "../../domain/create-room.ts";
+import { activityTendencies, diningTendencies, initialCreateDraft, supportedCities, toggleTendencySelection, type CreateDraft, type DiscoveryMode, type DurationChoice, type TimePeriod } from "../../domain/create-room.ts";
 import { locateCurrentOrigin } from "../../services/location.ts";
 import { createRoom } from "../../services/rooms.ts";
 import { loadSession } from "../../store/session.ts";
@@ -23,7 +23,11 @@ export default function CreatePage() {
   const tendencies = useMemo(() => draft.kind === "dining" ? diningTendencies : activityTendencies, [draft.kind]);
   const update = <K extends keyof CreateDraft>(key: K, value: CreateDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const togglePeriod = (period: TimePeriod) => update("preferredPeriods", draft.preferredPeriods.includes(period) ? draft.preferredPeriods.filter((item) => item !== period) : [...draft.preferredPeriods, period]);
-  const toggleTendency = (item: string) => update("tendencies", draft.tendencies.includes(item) ? draft.tendencies.filter((value) => value !== item) : [...draft.tendencies, item]);
+  const toggleTendency = (item: string) => {
+    const result = toggleTendencySelection(draft.tendencies, item);
+    update("tendencies", result.tendencies);
+    setMessage(result.message || "");
+  };
 
   const locate = async () => {
     setLocating(true); setMessage("");
@@ -57,7 +61,7 @@ export default function CreatePage() {
       <Text className="field-label">大概什么时段？可多选</Text><ChoiceRow options={periodOptions} selected={draft.preferredPeriods} onToggle={(value) => togglePeriod(value as TimePeriod)} />
       <Text className="field-label">大概持续多久？</Text><ChoiceRow options={durationOptions} selected={[draft.durationMinutes]} onToggle={(value) => update("durationMinutes", value as DurationChoice)} />
       <Text className="field-label">这次怎么找灵感？</Text><ChoiceRow options={[{ value: "inspiration" as DiscoveryMode, label: "给我点灵感" }, { value: "ideas" as DiscoveryMode, label: "我有点想法" }]} selected={[draft.discoveryMode]} onToggle={(value) => update("discoveryMode", value as DiscoveryMode)} />
-      {draft.discoveryMode === "ideas" ? <View className="idea-panel"><Text className="field-label">想尝试什么？可多选</Text><ChoiceRow options={tendencies.map((value) => ({ value, label: value }))} selected={draft.tendencies} onToggle={(value) => toggleTendency(String(value))} /><Input className="form-input" value={draft.avoid} maxlength={120} placeholder="不想要什么？（可选）" onInput={(event) => update("avoid", event.detail.value)} /></View> : null}
+      {draft.discoveryMode === "ideas" ? <View className="idea-panel"><Text className="field-label">想尝试什么？最多选 6 个</Text><ChoiceRow options={tendencies.map((value) => ({ value, label: value }))} selected={draft.tendencies} onToggle={(value) => toggleTendency(String(value))} /><Input className="form-input" value={draft.avoid} maxlength={120} placeholder="不想要什么？（可选）" onInput={(event) => update("avoid", event.detail.value)} /></View> : null}
       <Text className="field-label">预计几个人？</Text><View className="people-row"><Button className="stepper-button" disabled={draft.people <= 2} onClick={() => update("people", draft.people - 1)}>−</Button><Text>{draft.people} 人</Text><Button className="stepper-button" disabled={draft.people >= 6} onClick={() => update("people", draft.people + 1)}>＋</Button></View>
       {message ? <Text className="form-message">{message}</Text> : null}
       <PrimaryButton loading={submitting} onClick={() => void submit()}>生成我的房间</PrimaryButton>
