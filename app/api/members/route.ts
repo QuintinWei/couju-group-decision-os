@@ -1,5 +1,5 @@
 import { getStoredRoom, joinStoredRoom, relaxStoredMemberCommute, replaceInitialCandidates, restoreStoredMembership, saveStoredMemberConstraints, updateStoredMember } from "../../../lib/room-store";
-import type { Candidate, Choice, PreferenceExtraction } from "../../../lib/couju";
+import type { Candidate, PreferenceExtraction } from "../../../lib/couju";
 import { geocodeOrigin } from "../../../lib/amap";
 import { isChoiceRecord } from "../../../lib/member-submission";
 import { validateRejectionReasons, type RejectionReasonRecord } from "../../../lib/rejection-feedback";
@@ -62,12 +62,16 @@ export async function PATCH(request: Request) {
     return Response.json({ ok: true });
   }
   const expectedRound = body.expectedRound;
-  if (typeof expectedRound !== "number" || !Number.isInteger(expectedRound) || expectedRound < 1 || expectedRound > 3 || !isChoiceRecord(body.choices)) {
+  if (typeof expectedRound !== "number" || !Number.isInteger(expectedRound) || expectedRound < 1 || expectedRound > 3) {
     return Response.json({ error: "轮次或 12 张候选选择无效" }, { status: 400 });
   }
-  const choices = body.choices as Record<string, Choice>;
-  const rejectionReasons = body.rejectionReasons ?? {};
   const roomForValidation = await getStoredRoom(roomCode);
+  if (roomForValidation && expectedRound !== roomForValidation.currentRound) {
+    return Response.json({ error: "房间已进入下一轮，请刷新后重新选择" }, { status: 409 });
+  }
+  if (!isChoiceRecord(body.choices)) return Response.json({ error: "轮次或 12 张候选选择无效" }, { status: 400 });
+  const choices = body.choices;
+  const rejectionReasons = body.rejectionReasons ?? {};
   const candidateIds = roomForValidation?.candidates.map((candidate) => candidate.id) ?? [];
   if (!validateRejectionReasons(rejectionReasons, candidateIds, choices)) return Response.json({ error: "不喜欢原因无效" }, { status: 400 });
   const extraction = body.extraction && typeof body.extraction === "object" ? body.extraction as PreferenceExtraction : null;

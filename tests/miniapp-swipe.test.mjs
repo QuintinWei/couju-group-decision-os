@@ -152,10 +152,13 @@ test("round service posts the exact member submission contract without an AI ext
 });
 
 test("native shared-card UI keeps accessible choices and the optional half-screen rejection flow", async () => {
-  const [card, sheet, page, config] = await Promise.all([
+  const [card, cardStyles, sheet, sheetStyles, page, pageStyles, config] = await Promise.all([
     readFile(new URL("../miniapp/src/components/CandidateCard/index.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../miniapp/src/components/CandidateCard/index.scss", import.meta.url), "utf8"),
     readFile(new URL("../miniapp/src/components/RejectionSheet/index.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../miniapp/src/components/RejectionSheet/index.scss", import.meta.url), "utf8"),
     readFile(new URL("../miniapp/src/pages/swipe/index.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../miniapp/src/pages/swipe/index.scss", import.meta.url), "utf8"),
     readFile(new URL("../miniapp/src/pages/swipe/index.config.ts", import.meta.url), "utf8"),
   ]);
 
@@ -164,11 +167,15 @@ test("native shared-card UI keeps accessible choices and the optional half-scree
   assert.match(card, />一般</);
   assert.match(card, />喜欢</);
   assert.match(card, /current\} \/ \{total\}/);
+  assert.match(cardStyles, /\.candidate-choice[^}]*min-height:\s*104px/);
   assert.match(sheet, /rejectionReasonOptions/);
   assert.match(sheet, /暂不填写/);
   assert.match(sheet, /rejection-sheet/);
+  assert.match(sheetStyles, /\.rejection-option[^}]*min-height:\s*104px/);
+  assert.match(sheetStyles, /\.rejection-skip[^}]*min-height:\s*104px/);
   assert.match(page, /createSubmissionGate/);
   assert.match(page, /submitWithRoundRecovery/);
   assert.match(page, /retrySubmit/);
+  assert.match(pageStyles, /\.swipe-retry[^}]*min-height:\s*104px/);
   assert.match(config, /12 张共享卡/);
 });
