@@ -115,6 +115,7 @@ export type ParticipantRoom = {
     privateCandidates?: Candidate[];
     nominatedCandidate?: Candidate | null;
     refreshRequestRound: number | null;
+    privateDiscoveryCompleted: boolean;
   }>;
   nominationCount: number;
   createdAt: string;

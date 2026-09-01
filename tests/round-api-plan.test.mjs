@@ -47,6 +47,27 @@ test("hard constraints with zero feasible result also require private discovery 
   assert.deepEqual(evaluateAdvanceGate(room, "owner", 1, false), { ok: false, status: 409, code: "INCOMPLETE_PRIVATE_DISCOVERY" });
 });
 
+test("requesting and receiving private cards cannot advance until every member explicitly nominates or skips", () => {
+  const choices = Object.fromEntries(candidates.map((candidate) => [candidate.id, "no"]));
+  const privateBatch = candidates.slice(0, 3);
+  const room = {
+    currentRound: 1,
+    candidates,
+    members: [
+      { id: "creator", submittedAt: "now", choices, refreshRequestRound: 1, privateCandidates: privateBatch, privateDecisionRound: null },
+      { id: "friend", submittedAt: "now", choices, refreshRequestRound: 1, privateCandidates: privateBatch, privateDecisionRound: null },
+    ],
+  };
+
+  assert.deepEqual(evaluateAdvanceGate(room, "creator", 1, false), { ok: false, status: 409, code: "INCOMPLETE_PRIVATE_DISCOVERY" });
+  room.members[0].privateDecisionRound = 1;
+  room.members[1].privateDecisionRound = 1;
+  assert.deepEqual(evaluateAdvanceGate(room, "creator", 1, false), { ok: true });
+
+  room.members[1].privateCandidates = privateBatch.slice(0, 2);
+  assert.deepEqual(evaluateAdvanceGate(room, "creator", 1, false), { ok: false, status: 409, code: "INCOMPLETE_PRIVATE_DISCOVERY" });
+});
+
 test("generation failure does not invoke mutation", async () => {
   let mutated = false;
   const gate = evaluateAdvanceGate({ currentRound: 1, members: [submitted], candidates }, "creator", 1);

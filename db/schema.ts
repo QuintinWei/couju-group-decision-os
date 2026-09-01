@@ -50,6 +50,7 @@ export const members = sqliteTable("members", {
   refreshRequestRound: integer("refresh_request_round"),
   privateCandidatesJson: text("private_candidates_json"),
   nominatedCandidateJson: text("nominated_candidate_json"),
+  privateDecisionRound: integer("private_decision_round"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [

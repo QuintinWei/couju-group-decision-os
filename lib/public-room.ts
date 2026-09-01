@@ -17,7 +17,7 @@ export type JoinRoomDto = {
   status: "open" | "full";
 };
 
-type PublicMember = Omit<StoredMember, "userId">;
+type PublicMember = Omit<StoredMember, "userId" | "privateDecisionRound"> & { privateDiscoveryCompleted: boolean };
 type PeerMember = Omit<PublicMember, "privateCandidates" | "nominatedCandidate" | "availability" | "rejectionReasons"> & { availabilitySubmitted: boolean };
 export type ParticipantRoomDto = Omit<StoredRoom, "members"> & { members: Array<PublicMember | PeerMember>; nominationCount: number };
 
@@ -50,8 +50,13 @@ export function toParticipantRoom(room: StoredRoom, memberId: string): Participa
     ...room,
     nominationCount: room.members.filter((member) => member.nominatedCandidate !== null).length,
     members: room.members.map((member) => {
-      const { userId, ...publicMember } = member;
+      const { userId, privateDecisionRound, ...memberWithoutPrivateMarker } = member;
       void userId;
+      const providerIds = member.privateCandidates.map((candidate) => candidate.source.providerId || candidate.id);
+      const publicMember: PublicMember = {
+        ...memberWithoutPrivateMarker,
+        privateDiscoveryCompleted: privateDecisionRound === room.currentRound && member.privateCandidates.length === 3 && new Set(providerIds).size === 3,
+      };
       if (member.id === memberId) return publicMember;
       const { privateCandidates, nominatedCandidate, availability, rejectionReasons, ...peer } = publicMember;
       void privateCandidates;

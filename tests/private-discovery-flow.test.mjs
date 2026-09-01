@@ -75,13 +75,17 @@ test("authenticated participant DTO keeps private cards isolated from peers", ()
     code: "ABC123", config: { kind: "activity", city: "上海", date: "2026-08-24", startTime: "18:00", endTime: "21:30", people: 2 }, candidates: shared,
     meta: { mode: "demo", label: "test", fetchedAt: "2026-08-24T00:00:00.000Z" }, currentRound: 1, roundHistory: [], createdAt: "2026-08-24T00:00:00.000Z", updatedAt: "2026-08-24T00:00:00.000Z",
     members: [
-      { id: "one", name: "一", origin: "静安寺", originLocation: null, budgetLabel: "不限", commuteLabel: "不限", setting: "都可以", note: "", extraction: null, choices: { [shared[0].id]: "no" }, submittedAt: "2026-08-24T00:00:00.000Z", refreshRequestRound: 1, privateCandidates: [privateCard], nominatedCandidate: privateCard },
-      { id: "two", name: "二", origin: "徐家汇", originLocation: null, budgetLabel: "不限", commuteLabel: "不限", setting: "都可以", note: "", extraction: null, choices: {}, submittedAt: null, refreshRequestRound: null, privateCandidates: [privateCard], nominatedCandidate: privateCard },
+      { id: "one", name: "一", origin: "静安寺", originLocation: null, budgetLabel: "不限", commuteLabel: "不限", setting: "都可以", note: "", extraction: null, choices: { [shared[0].id]: "no" }, submittedAt: "2026-08-24T00:00:00.000Z", refreshRequestRound: 1, privateCandidates: [privateCard, { ...privateCard, id: "private-two", source: { ...privateCard.source, providerId: "private-poi-two" } }, { ...privateCard, id: "private-three", source: { ...privateCard.source, providerId: "private-poi-three" } }], nominatedCandidate: privateCard, privateDecisionRound: 1 },
+      { id: "two", name: "二", origin: "徐家汇", originLocation: null, budgetLabel: "不限", commuteLabel: "不限", setting: "都可以", note: "", extraction: null, choices: {}, submittedAt: null, refreshRequestRound: null, privateCandidates: [privateCard], nominatedCandidate: privateCard, privateDecisionRound: null },
     ],
   };
   const dto = toParticipantRoom(room, "one");
   assert.equal(dto.nominationCount, 2);
-  assert.equal(dto.members[0].privateCandidates.length, 1);
+  assert.equal(dto.members[0].privateCandidates.length, 3);
+  assert.equal(dto.members[0].privateDiscoveryCompleted, true);
+  assert.equal(dto.members[1].privateDiscoveryCompleted, false);
+  assert.equal("privateDecisionRound" in dto.members[0], false);
+  assert.equal("privateDecisionRound" in dto.members[1], false);
   assert.equal("privateCandidates" in dto.members[1], false);
   assert.doesNotMatch(JSON.stringify(dto.members[1]), /private-card-id|private-poi-id/);
 });

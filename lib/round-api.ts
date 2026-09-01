@@ -1,7 +1,14 @@
 import { canRequestPrivateDiscovery } from "./rounds.ts";
 
 type CandidateIdentity = { id: string; source?: { providerId?: string } };
-type MemberSubmission = { id: string; submittedAt: string | null; choices?: Record<string, "no" | "okay" | "like">; refreshRequestRound?: number | null };
+type MemberSubmission = {
+  id: string;
+  submittedAt: string | null;
+  choices?: Record<string, "no" | "okay" | "like">;
+  refreshRequestRound?: number | null;
+  privateCandidates?: CandidateIdentity[];
+  privateDecisionRound?: number | null;
+};
 type PrivateDiscoveryMember = { privateCandidates: CandidateIdentity[]; nominatedCandidate: CandidateIdentity | null };
 
 export type RoundGateCode = "NOT_CREATOR" | "STALE_ROUND" | "MAX_ROUNDS" | "INCOMPLETE_MEMBERS" | "INCOMPLETE_PRIVATE_DISCOVERY" | "INVALID_SHARED_CANDIDATES" | "PRIVATE_INELIGIBLE" | "GENERATION_FAILED" | "SERVICE_FAILED" | "MALFORMED";
@@ -27,7 +34,7 @@ export function evaluateAdvanceGate(room: { currentRound: number; members: Membe
   if (!allCurrentMembersSubmitted(room.members)) return { ok: false, status: 409, code: "INCOMPLETE_MEMBERS" };
   const completeChoices = room.members.every((member) => member.choices && room.candidates.every((candidate) => Boolean(member.choices?.[candidate.id])));
   const noIntersection = completeChoices && (!hasFeasibleResult || room.candidates.every((candidate) => room.members.some((member) => member.choices?.[candidate.id] === "no")));
-  if (noIntersection && room.members.some((member) => member.refreshRequestRound !== room.currentRound)) return { ok: false, status: 409, code: "INCOMPLETE_PRIVATE_DISCOVERY" };
+  if (noIntersection && room.members.some((member) => !hasCompletedPrivateDiscovery(member, room.currentRound))) return { ok: false, status: 409, code: "INCOMPLETE_PRIVATE_DISCOVERY" };
   if (room.candidates.length !== 12 || !hasUniqueProviderIds(room.candidates)) return { ok: false, status: 422, code: "INVALID_SHARED_CANDIDATES" };
   return { ok: true };
 }
@@ -43,6 +50,14 @@ export function evaluatePrivateDiscoveryGate(candidateIds: string[], choices: Re
 
 export function allCurrentMembersSubmitted(members: MemberSubmission[]) {
   return members.length > 0 && members.every((member) => Boolean(member.submittedAt));
+}
+
+export function isCompletedRoundBoundary(room: { config: { people: number }; currentRound: number; members: MemberSubmission[]; candidates: CandidateIdentity[] }) {
+  return room.members.length === room.config.people
+    && room.candidates.length === 12
+    && hasUniqueProviderIds(room.candidates)
+    && allCurrentMembersSubmitted(room.members)
+    && room.members.every((member) => member.choices && room.candidates.every((candidate) => Boolean(member.choices?.[candidate.id])));
 }
 
 /** Private discoveries are only eligible for the shared pool when explicitly nominated. */
@@ -90,6 +105,12 @@ export async function executeGuardedGeneration<T, R>(gate: RoundGateResult, gene
 function hasUniqueProviderIds(candidates: CandidateIdentity[]) {
   const ids = candidates.map((candidate) => candidate.source?.providerId || candidate.id);
   return new Set(ids).size === ids.length;
+}
+
+function hasCompletedPrivateDiscovery(member: MemberSubmission, currentRound: number) {
+  return member.privateDecisionRound === currentRound
+    && member.privateCandidates?.length === 3
+    && hasUniqueProviderIds(member.privateCandidates);
 }
 
 function providerKey(candidate: CandidateIdentity) {

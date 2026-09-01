@@ -132,6 +132,7 @@ export default function ResultPage() {
       <Text className="result-section-title">当前进度</Text>
       <Text className="result-wait-copy">{pendingRecoveryMessage(room)}</Text>
       {message ? <Text className="result-message">{message}</Text> : null}
+      {action === "private-discovery" ? <PrimaryButton onClick={() => void Taro.navigateTo({ url: `/pages/discovery/index?room=${room.code}` })}>查看我的 3 张私人发现卡</PrimaryButton> : null}
       <Button className="result-reload" onClick={() => void load(room.code, membership)}>刷新状态</Button>
     </View>
   </View>;

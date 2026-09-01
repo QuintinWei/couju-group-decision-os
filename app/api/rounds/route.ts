@@ -358,7 +358,7 @@ function mutationResponse(result: { ok: true; currentRound: number } | RoundMuta
   if (result.ok) return Response.json({ ok: true, currentRound: result.currentRound }, { headers: noStore });
   const status = result.code === "UNAUTHORIZED" || result.code === "NOT_CREATOR" ? 403
     : result.code === "MAX_ROUNDS" ? 429
-      : result.code === "STALE_ROUND" || result.code === "INCOMPLETE_MEMBERS" ? 409
+      : result.code === "STALE_ROUND" || result.code === "INCOMPLETE_MEMBERS" || result.code === "INCOMPLETE_PRIVATE_DISCOVERY" ? 409
         : 422;
   return error(mutationMessage(result.code), status);
 }
@@ -369,6 +369,7 @@ function mutationMessage(code: RoundMutationFailure["code"]) {
   if (code === "MAX_ROUNDS") return "已经是第三轮，无法继续换一批";
   if (code === "STALE_ROUND") return "房间已更新，请刷新后继续";
   if (code === "INCOMPLETE_MEMBERS") return "所有已加入成员提交本轮选择后，房主才能换一批";
+  if (code === "INCOMPLETE_PRIVATE_DISCOVERY") return "请等待每位成员完成私人提名或明确跳过";
   if (code === "INVALID_NOMINATION") return "只能提名自己的私人发现卡";
   return "候选数据无效，无法更新轮次";
 }

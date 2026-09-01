@@ -129,6 +129,7 @@ test("persists explicit shared-decision round fields in the D1 schema", async ()
   assert.match(schema, /refreshRequestRound: integer\("refresh_request_round"\)/);
   assert.match(schema, /privateCandidatesJson: text\("private_candidates_json"\)/);
   assert.match(schema, /nominatedCandidateJson: text\("nominated_candidate_json"\)/);
+  assert.match(schema, /privateDecisionRound: integer\("private_decision_round"\)/);
 });
 
 test("round storage rejects legacy replacement and validates private and shared round payloads", async () => {
@@ -146,8 +147,11 @@ test("round storage rejects legacy replacement and validates private and shared 
   assert.match(roomStore, /code: "STALE_ROUND"/);
   assert.match(roomStore, /startedAt: history\.at\(-1\)\?\.endedAt \?\? room\.created_at/);
   assert.match(roomStore, /budget_label|commute_label|origin_lng|extraction_json/);
-  assert.match(roomStore, /private_candidates_json, nominated_candidate_json, submitted_at FROM members/);
+  assert.match(roomStore, /private_candidates_json, nominated_candidate_json, private_decision_round, submitted_at FROM members/);
   assert.match(roomStore, /privateCandidates: safeJson<Candidate\[\]>/);
+  assert.match(roomStore, /private_decision_round = \?/);
+  assert.match(roomStore, /private_decision_round = NULL/);
+  assert.match(roomStore, /evaluateAdvanceGate\(\s*authoritativeRoom/);
   assert.doesNotMatch(roomStore, /UPDATE members[^"]*round_history_json = \?/);
 });
 

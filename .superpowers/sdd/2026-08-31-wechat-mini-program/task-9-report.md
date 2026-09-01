@@ -17,13 +17,16 @@
 - Added red/green regressions for all-veto versus commute-only diagnosis, duration and no-spicy diagnosis, incomplete-round wait behavior, retryable discovery markers, optional commute wording, private-discovery response-loss reuse, and token-free native share paths.
 - Extended `tests/miniapp-request.test.mjs` with a red/green transport timeout test.
 - Independent review identified partial discovery recovery, commute-action precedence, incomplete-round rendering, and slow insight requests. Each issue received a regression test and implementation fix; the follow-up review's remaining wait-message/service-retry observations were also addressed.
+- The final review added four server/client boundary findings. `/api/insights` now returns 409 before producing learned/conflict content until the authenticated room has exactly 12 valid shared cards and every expected member has submitted a complete choice map. Advance no longer treats a refresh request as completed recovery: migration `0009_add_private_decision_round.sql` records an explicit nominate/skip decision, a valid unique three-card batch is also required, and the same gate is rechecked at the storage boundary after candidate generation.
+- The native discovery page now lets the rounds API authorize an individual all-rejected request even while peers are incomplete, and displays the server denial if eligibility changes. The public participant DTO exposes only a privacy-safe completion boolean; the durable decision round and peer cards remain hidden.
+- Commute recovery now proposes the smallest integer limit after applying the existing 15-minute tolerance (`30` with travel `46` becomes `31`). Rounds 1–2 retain the real pending-recovery wording because this suggestion is optional; only the terminal round can wait on that member's confirmation.
 
 ## Verification
 
-- Focused Task 9 and existing API suites: 39 passing, 0 failing (`miniapp-result`, `miniapp-request`, `private-discovery-flow`, `round-insight`, and `rounds-api`).
+- Focused Task 9, server-boundary, persistence, membership, and existing API suites: 78 passing, 0 failing.
 - `npm --workspace miniapp run typecheck` — passing.
 - `npm run miniapp:build` — passing.
-- `npm test` — 182 passing, 0 failing.
+- `npm test` — 185 passing, 0 failing.
 - Changed-file ESLint check and `git diff --check` — clean.
 
 ## Notes

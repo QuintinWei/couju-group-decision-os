@@ -34,15 +34,14 @@ export type ParticipantCommuteRelaxation = {
 };
 
 export function resultAction(room: ParticipantRoom, memberId: string): ResultAction {
+  const member = room.members.find((item) => item.id === memberId);
+  if (!member) return "wait";
+  const privateRecoveryComplete = member.privateDiscoveryCompleted && (member.privateCandidates?.length ?? 0) === 3;
+  if (room.currentRound < 3 && canOpenPrivateDiscovery(room, memberId) && !privateRecoveryComplete) return "private-discovery";
   if (!isCompletedParticipantRound(room)) return "wait";
   if (participantRankings(room).length > 0) return "result";
 
-  const member = room.members.find((item) => item.id === memberId);
-  if (!member) return "wait";
   if (room.currentRound < 3) {
-    const recovered = member.refreshRequestRound === room.currentRound;
-    const hasCompletePrivateBatch = (member.privateCandidates?.length ?? 0) === 3;
-    if (canOpenPrivateDiscovery(room, memberId) && (!recovered || !hasCompletePrivateBatch)) return "private-discovery";
     if (advancePermitted(room)) return room.members[0]?.id === memberId ? "advance" : "wait";
     return "wait";
   }
@@ -201,14 +200,14 @@ export function suggestParticipantCommuteRelaxation(room: ParticipantRoom): Part
       .filter((minutes): minutes is number => minutes !== null)
       .sort((left, right) => left - right);
     if (!over.length) return [];
-    const suggestedMinutes = Math.ceil(over[0]);
+    const suggestedMinutes = Math.max(currentMinutes + 1, Math.ceil(over[0] - commuteToleranceMinutes));
     return [{
       memberId: member.id,
       memberName: member.name || "一位成员",
       currentMinutes,
       suggestedMinutes,
       addedMinutes: suggestedMinutes - currentMinutes,
-      restoredCandidateCount: over.filter((minutes) => minutes <= suggestedMinutes).length,
+      restoredCandidateCount: over.filter((minutes) => minutes <= suggestedMinutes + commuteToleranceMinutes).length,
     }];
   });
   return suggestions.sort((left, right) => left.addedMinutes - right.addedMinutes || right.restoredCandidateCount - left.restoredCandidateCount)[0] ?? null;
@@ -242,7 +241,7 @@ export function pendingRecoveryMessage(room: ParticipantRoom) {
     const pending = room.members.filter((member) => !member.submittedAt).map((member) => member.name);
     return pending.length ? `等待${pending.join("、")}完成本轮选择` : "等待本轮完成";
   }
-  const pending = room.members.filter((member) => member.refreshRequestRound !== room.currentRound).map((member) => member.name);
+  const pending = room.members.filter((member) => !member.privateDiscoveryCompleted).map((member) => member.name);
   return pending.length ? `等待${pending.join("、")}完成本轮恢复操作` : "等待房主开启下一轮";
 }
 
@@ -292,13 +291,15 @@ export function isCompletedParticipantRound(room: ParticipantRoom) {
 }
 
 export function canOpenPrivateDiscovery(room: ParticipantRoom, memberId: string) {
-  if (room.currentRound >= 3 || !isCompletedParticipantRound(room)) return false;
+  if (room.currentRound >= 3 || room.candidates.length !== 12) return false;
   const member = room.members.find((item) => item.id === memberId);
   if (!member) return false;
   const selfRejectedAll = room.candidates.every((candidate) => member.choices[candidate.id] === "no");
+  if (selfRejectedAll) return true;
+  if (!isCompletedParticipantRound(room)) return false;
   const noIntersection = participantRankings(room).length === 0
     || room.candidates.every((candidate) => room.members.some((item) => item.choices[candidate.id] === "no"));
-  return selfRejectedAll || noIntersection;
+  return noIntersection;
 }
 
 function advancePermitted(room: ParticipantRoom) {
@@ -307,7 +308,7 @@ function advancePermitted(room: ParticipantRoom) {
   if (new Set(providers).size !== 12) return false;
   const noIntersection = participantRankings(room).length === 0
     || room.candidates.every((candidate) => room.members.some((member) => member.choices[candidate.id] === "no"));
-  return !noIntersection || room.members.every((member) => member.refreshRequestRound === room.currentRound);
+  return !noIntersection || room.members.every((member) => member.privateDiscoveryCompleted);
 }
 
 function scoreMember(candidate: Candidate, choice: Choice | undefined, setting: string, extraction: unknown, budget: number | null, commute: number | null, travel: number | null) {

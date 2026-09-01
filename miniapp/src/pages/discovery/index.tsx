@@ -5,7 +5,7 @@ import { useState } from "react";
 import AppState from "../../components/AppState";
 import BrandHeader from "../../components/BrandHeader";
 import PrimaryButton from "../../components/PrimaryButton";
-import { canOpenPrivateDiscovery, togglePrivateNomination } from "../../domain/result-action.ts";
+import { togglePrivateNomination } from "../../domain/result-action.ts";
 import { normalizeRoomCode } from "../../domain/session.ts";
 import { candidateImageUrl } from "../../domain/swipe.ts";
 import { getParticipantRoom, resolveRoomMembership } from "../../services/members.ts";
@@ -28,9 +28,6 @@ export default function DiscoveryPage() {
     try {
       const identity = await resolveRoomMembership(code);
       const latestRoom = await getParticipantRoom(identity);
-      if (!canOpenPrivateDiscovery(latestRoom, identity.memberId)) {
-        throw new Error("当前状态不能开启私人发现，请返回结果页刷新");
-      }
       const privateCards = await requestPrivateDiscovery(identity, latestRoom.currentRound);
       setMembership(identity); setRoom(latestRoom); setCards(privateCards); setSelectedId(null);
     } catch (error) {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -60,6 +61,7 @@ function member(id, name, choices, overrides = {}) {
     submittedAt: "2026-09-01T10:00:00.000Z",
     availability: [],
     refreshRequestRound: null,
+    privateDiscoveryCompleted: false,
     privateCandidates: [],
     nominatedCandidate: null,
     ...overrides,
@@ -123,10 +125,13 @@ test("result action derives private discovery and creator advance only from publ
   conflicted.members[1].refreshRequestRound = 1;
   conflicted.members[0].privateCandidates = candidates.slice(0, 3);
   conflicted.members[1].privateCandidates = candidates.slice(0, 3);
+  assert.equal(resultAction(conflicted, "creator"), "private-discovery");
+  conflicted.members[0].privateDiscoveryCompleted = true;
+  conflicted.members[1].privateDiscoveryCompleted = true;
   assert.equal(resultAction(conflicted, "creator"), "advance");
   assert.equal(resultAction(conflicted, "member-b"), "wait");
 
-  conflicted.members[1].refreshRequestRound = null;
+  conflicted.members[1].privateDiscoveryCompleted = false;
   assert.equal(resultAction(conflicted, "creator"), "wait");
   assert.equal(pendingRecoveryMessage(conflicted), "等待小北完成本轮恢复操作");
   assert.doesNotMatch(pendingRecoveryMessage(conflicted), /候选|卡片|提名|跳过/);
@@ -141,7 +146,24 @@ test("partial private discovery remains retryable after the refresh marker was s
   assert.equal(canOpenPrivateDiscovery(partial, "creator"), true);
   assert.equal(resultAction(partial, "creator"), "private-discovery");
   partial.members[0].privateCandidates = candidates.slice(0, 3);
+  assert.equal(resultAction(partial, "creator"), "private-discovery");
+  partial.members[0].privateDiscoveryCompleted = true;
+  partial.members[1].privateCandidates = candidates.slice(0, 3);
+  partial.members[1].privateDiscoveryCompleted = true;
   assert.equal(resultAction(partial, "creator"), "advance");
+});
+
+test("an individually all-rejected member can open server-authorized discovery while peers are incomplete", async () => {
+  const allNo = Object.fromEntries(candidates.map((item) => [item.id, "no"]));
+  const individual = room([
+    { choices: allNo },
+    { choices: {}, submittedAt: null },
+  ]);
+  assert.equal(canOpenPrivateDiscovery(individual, "creator"), true);
+  assert.equal(resultAction(individual, "creator"), "private-discovery");
+
+  const discoveryPage = await readFile(new URL("../miniapp/src/pages/discovery/index.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(discoveryPage, /canOpenPrivateDiscovery/);
 });
 
 test("an incomplete round waits and a completed round exposes deterministic named conflict reasons", () => {
@@ -190,8 +212,8 @@ test("the smallest commute relaxation belongs only to the affected member", () =
     memberId: "creator",
     memberName: "小安",
     currentMinutes: 30,
-    suggestedMinutes: 46,
-    addedMinutes: 16,
+    suggestedMinutes: 31,
+    addedMinutes: 1,
     restoredCandidateCount: 1,
   });
   assert.equal(resultAction(commuteRoom, "creator"), "edit-commute");
@@ -201,8 +223,8 @@ test("the smallest commute relaxation belongs only to the affected member", () =
 test("optional commute negotiation never hides a server-permitted creator advance", () => {
   const commuteCandidates = candidates.map((item, index) => ({ ...item, estimatedTravelMinutes: 46 + index }));
   const recoverable = room([
-    { commuteLabel: "≤ 30 分钟", refreshRequestRound: 1, privateCandidates: commuteCandidates.slice(0, 3) },
-    { commuteLabel: "不限", refreshRequestRound: 1 },
+    { commuteLabel: "≤ 30 分钟", refreshRequestRound: 1, privateCandidates: commuteCandidates.slice(0, 3), privateDiscoveryCompleted: true },
+    { commuteLabel: "不限", refreshRequestRound: 1, privateCandidates: commuteCandidates.slice(0, 3), privateDiscoveryCompleted: true },
   ], { candidates: commuteCandidates });
   assert.ok(suggestParticipantCommuteRelaxation(recoverable));
   assert.equal(resultAction(recoverable, "creator"), "advance");
@@ -211,7 +233,7 @@ test("optional commute negotiation never hides a server-permitted creator advanc
 test("optional commute negotiation never replaces the actual pending recovery message", () => {
   const commuteCandidates = candidates.map((item, index) => ({ ...item, estimatedTravelMinutes: 46 + index }));
   const pending = room([
-    { commuteLabel: "≤ 30 分钟", refreshRequestRound: 1, privateCandidates: commuteCandidates.slice(0, 3) },
+    { commuteLabel: "≤ 30 分钟", refreshRequestRound: 1, privateCandidates: commuteCandidates.slice(0, 3), privateDiscoveryCompleted: true },
     { commuteLabel: "不限", refreshRequestRound: null },
   ], { candidates: commuteCandidates });
   assert.ok(suggestParticipantCommuteRelaxation(pending));
