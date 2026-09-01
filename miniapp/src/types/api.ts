@@ -88,12 +88,25 @@ export type ParticipantRoom = {
     endTime: string;
   };
   candidates: Candidate[];
+  meta: {
+    mode: "live" | "demo";
+    label: string;
+    fetchedAt: string;
+    groupIntersection?: boolean;
+  };
   currentRound: number;
+  roundHistory: Array<{ round: number }>;
   members: Array<{
     id: string;
     name: string;
     origin: string;
+    originLocation: { lng: number; lat: number } | null;
+    budgetLabel: string;
+    commuteLabel: string;
     constraintsReady: boolean;
+    setting: string;
+    note: string;
+    extraction: unknown | null;
     submittedAt: string | null;
     availability?: Array<{ startAt: string; endAt: string }> | null;
     availabilitySubmitted?: boolean;
@@ -101,10 +114,13 @@ export type ParticipantRoom = {
     rejectionReasons?: Record<string, RejectionReason>;
     privateCandidates?: Candidate[];
     nominatedCandidate?: Candidate | null;
+    refreshRequestRound: number | null;
   }>;
   nominationCount: number;
   canPrivateDiscover?: string[];
   canAdvance?: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type RoundInsight = {
