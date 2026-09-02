@@ -145,6 +145,23 @@ TARO_APP_API_BASE=https://your-api.example.com npm run miniapp:build
 
 构建产物位于 `miniapp/dist/`。在微信开发者工具中导入仓库内的 `miniapp` 目录；该目录的 `project.config.json` 已将 `miniprogramRoot` 指向 `dist/`，AppID `wx7162630074a237b6` 也已配置。开发联调时，如果测试域名尚未加入微信公众平台的 request 合法域名，可在微信开发者工具的本地设置中临时关闭 request 域名校验；正式提交前仍需配置合法 HTTPS 域名。
 
+#### D1 数据迁移（部署更新接口前）
+
+下面的命令只用于实际的远程 D1 数据库。先完成 `npm install`，使用 `npx wrangler whoami` 确认 Wrangler 已登录正确的 Cloudflare 账号，并准备数据库的真实名称或 Wrangler 绑定；不要使用示例绑定名。执行前先为现有数据库保留可恢复的备份或还原点。
+
+升级现有数据库时，前提是编号 0000–0006 的迁移已经应用，并已通过部署记录和实际表结构确认。`0003` 和 `0006` 含有 `DELETE`，不得在有数据的数据库上补跑或重放；其他迁移也不是可重复执行的脚本。全新数据库必须为空，并先按文件编号顺序应用 `0000`–`0006`，之后才能继续下面的升级。
+
+将变量替换为目标 D1 的真实名称或 Wrangler 绑定，然后严格按 `0007` → `0008` → `0009` 执行：
+
+```bash
+export COUJU_D1_DATABASE="<真实的 D1 数据库名称或 Wrangler 绑定>"
+npx wrangler d1 execute "$COUJU_D1_DATABASE" --remote --file=drizzle/0007_add_wechat_users.sql
+npx wrangler d1 execute "$COUJU_D1_DATABASE" --remote --file=drizzle/0008_add_unique_room_user_membership.sql
+npx wrangler d1 execute "$COUJU_D1_DATABASE" --remote --file=drizzle/0009_add_private_decision_round.sql
+```
+
+每条命令成功后再执行下一条；若某条失败，先检查远程结构和迁移记录，不要直接重跑。认证、成员和轮次接口只能在 `0007`、`0008`、`0009` 全部成功后部署。
+
 小程序对应的服务端必须配置 `WECHAT_APP_ID`（值为上述 AppID）、`WECHAT_APP_SECRET` 和 `WECHAT_TOKEN_SECRET`。密钥只放在服务端环境中，不写入仓库或小程序构建；空值模板见 `.env.example`。
 
 `TARO_APP_API_BASE` 是小程序构建时使用的公开服务地址，不是密钥。当前仅提供开发者预览，尚未声称完成微信正式发布、提审或真机验收。

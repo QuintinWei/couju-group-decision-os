@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+
+const migrationTags = [
+  "0000_sudden_triton",
+  "0001_workable_adam_warlock",
+  "0002_wet_silhouette",
+  "0003_loose_speed",
+  "0004_add_rooms_updated_at_index",
+  "0005_add_rejection_reasons",
+  "0006_clear_historical_rooms",
+  "0007_add_wechat_users",
+  "0008_add_unique_room_user_membership",
+  "0009_add_private_decision_round",
+];
 
 test("miniapp release contract keeps secrets out and documents real setup", async () => {
   const [project, profile, readme, envExample] = await Promise.all([
@@ -14,7 +28,70 @@ test("miniapp release contract keeps secrets out and documents real setup", asyn
   assert.match(readme, /微信开发者工具/);
   assert.match(readme, /miniapp\/dist/);
   assert.doesNotMatch(project + profile + readme, /WECHAT_APP_SECRET\s*[:=]\s*[^\s"']+/);
-  assert.match(envExample, /WECHAT_TOKEN_SECRET=/);
+  assert.match(envExample, /^WECHAT_APP_SECRET=\s*$/m);
+  assert.match(envExample, /^WECHAT_TOKEN_SECRET=\s*$/m);
+});
+
+test("Drizzle metadata and SQL files form one ordered executable chain", async () => {
+  const drizzleUrl = new URL("../drizzle/", import.meta.url);
+  const metaUrl = new URL("../drizzle/meta/", import.meta.url);
+  const [journalSource, migrationFiles, metadataFiles] = await Promise.all([
+    readFile(new URL("_journal.json", metaUrl), "utf8"),
+    readdir(drizzleUrl),
+    readdir(metaUrl),
+  ]);
+  const journal = JSON.parse(journalSource);
+  const sqlTags = migrationFiles
+    .filter((file) => /^\d{4}_.+\.sql$/.test(file))
+    .sort()
+    .map((file) => file.replace(/\.sql$/, ""));
+  const snapshots = metadataFiles
+    .filter((file) => /^\d{4}_snapshot\.json$/.test(file))
+    .sort();
+
+  assert.deepEqual(sqlTags, migrationTags);
+  assert.deepEqual(journal.entries.map(({ tag }) => tag), migrationTags);
+  assert.deepEqual(journal.entries.map(({ idx }) => idx), migrationTags.map((_, index) => index));
+  assert.deepEqual(snapshots, migrationTags.map((_, index) => `${String(index).padStart(4, "0")}_snapshot.json`));
+  const snapshotChain = await Promise.all(snapshots.map(async (file) => JSON.parse(await readFile(new URL(file, metaUrl), "utf8"))));
+  for (let index = 1; index < snapshotChain.length; index += 1) {
+    assert.equal(snapshotChain[index].prevId, snapshotChain[index - 1].id, `${snapshots[index]} must follow the prior snapshot`);
+  }
+  assert.deepEqual(Object.keys(snapshotChain.at(-1).tables).sort(), ["members", "rooms", "users"]);
+
+  const database = new DatabaseSync(":memory:");
+  try {
+    database.exec("PRAGMA foreign_keys = ON");
+    for (const tag of migrationTags) {
+      database.exec(await readFile(new URL(`${tag}.sql`, drizzleUrl), "utf8"));
+    }
+    assert.equal(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'").get().name, "users");
+    const memberColumns = database.prepare("PRAGMA table_info(members)").all().map(({ name }) => name);
+    for (const column of ["rejection_reasons_json", "user_id", "private_decision_round"]) {
+      assert.ok(memberColumns.includes(column), `members.${column} must exist after the full chain`);
+    }
+    const memberIndexes = database.prepare("PRAGMA index_list(members)").all().map(({ name }) => name);
+    assert.ok(memberIndexes.includes("members_user_id_idx"));
+    assert.ok(memberIndexes.includes("members_room_user_id_unique"));
+  } finally {
+    database.close();
+  }
+});
+
+test("README gates updated endpoints on the ordered remote D1 upgrade", async () => {
+  const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+  const commands = [
+    'npx wrangler d1 execute "$COUJU_D1_DATABASE" --remote --file=drizzle/0007_add_wechat_users.sql',
+    'npx wrangler d1 execute "$COUJU_D1_DATABASE" --remote --file=drizzle/0008_add_unique_room_user_membership.sql',
+    'npx wrangler d1 execute "$COUJU_D1_DATABASE" --remote --file=drizzle/0009_add_private_decision_round.sql',
+  ];
+  const positions = commands.map((command) => readme.indexOf(command));
+
+  assert.ok(positions.every((position) => position >= 0), "all remote migration commands must be documented");
+  assert.deepEqual(positions, positions.toSorted((left, right) => left - right));
+  assert.match(readme, /0000–0006[^。]*已经应用/);
+  assert.match(readme, /0003[^。]*0006[^。]*DELETE/);
+  assert.match(readme, /认证、成员和轮次接口[^。]*0007[^。]*0008[^。]*0009/);
 });
 
 test("profile update persists only the server-confirmed nickname", async () => {

@@ -36,6 +36,41 @@
       "when": 1787621284645,
       "tag": "0004_add_rooms_updated_at_index",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788315857254,
+      "tag": "0005_add_rejection_reasons",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788315857564,
+      "tag": "0006_clear_historical_rooms",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1788315874806,
+      "tag": "0007_add_wechat_users",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788315887244,
+      "tag": "0008_add_unique_room_user_membership",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1788315901106,
+      "tag": "0009_add_private_decision_round",
+      "breakpoints": true
     }
   ]
 }
