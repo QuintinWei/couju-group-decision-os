@@ -1,4 +1,7 @@
-import type { StoredMember, StoredRoom } from "./room-store";
+import { rankGroupCandidates, type RankedCandidate } from "./couju.ts";
+import { isCompletedRoundBoundary } from "./round-api.ts";
+import { diagnoseRoundConflict, suggestMinimumCommuteRelaxation, type CommuteRelaxationSuggestion, type ConflictReason } from "./rounds.ts";
+import type { StoredMember, StoredRoom } from "./room-store.ts";
 
 export type JoinRoomDto = {
   code: string;
@@ -17,9 +20,33 @@ export type JoinRoomDto = {
   status: "open" | "full";
 };
 
-type PublicMember = Omit<StoredMember, "userId" | "privateDecisionRound"> & { privateDiscoveryCompleted: boolean };
-type PeerMember = Omit<PublicMember, "privateCandidates" | "nominatedCandidate" | "availability" | "rejectionReasons"> & { availabilitySubmitted: boolean };
-export type ParticipantRoomDto = Omit<StoredRoom, "members"> & { members: Array<PublicMember | PeerMember>; nominationCount: number };
+type ParticipantMemberStatus = {
+  id: string;
+  name: string;
+  locationReady: boolean;
+  availabilitySubmitted: boolean;
+  constraintsReady: boolean;
+  submittedAt: string | null;
+  refreshRequestRound: number | null;
+  privateDiscoveryCompleted: boolean;
+};
+
+export type ParticipantSelfMember = Omit<StoredMember, "userId" | "privateDecisionRound"> & ParticipantMemberStatus;
+export type ParticipantPeerMember = ParticipantMemberStatus;
+export type ParticipantMemberDto = ParticipantSelfMember | ParticipantPeerMember;
+
+export type ParticipantDecision = {
+  rankings: RankedCandidate[];
+  conflicts: Array<Omit<ConflictReason, "candidateIds">>;
+  commuteRelaxation: CommuteRelaxationSuggestion | null;
+};
+
+export type ParticipantRoomDto = Omit<StoredRoom, "members" | "roundHistory"> & {
+  members: ParticipantMemberDto[];
+  roundHistory: Array<{ round: number }>;
+  nominationCount: number;
+  decision: ParticipantDecision | null;
+};
 
 /**
  * Safe for anyone who knows the six-character code. Deliberately omits member
@@ -46,24 +73,44 @@ export function toJoinRoom(room: StoredRoom): JoinRoomDto {
 
 /** Full shared round data requires membership; peer-private rescue state stays isolated. */
 export function toParticipantRoom(room: StoredRoom, memberId: string): ParticipantRoomDto {
+  const completed = isCompletedRoundBoundary(room);
+  const rankings = completed
+    ? rankGroupCandidates(room.candidates, room.members, room.config).map((candidate) => ({
+      ...candidate,
+      // Individual travel estimates can reveal a member's approximate origin.
+      // The group aggregate remains useful for comparing final recommendations.
+      memberUtilities: candidate.memberUtilities.map((utility) => ({ ...utility, travelMinutes: null })),
+    }))
+    : [];
   return {
     ...room,
+    roundHistory: room.roundHistory.map(({ round }) => ({ round })),
     nominationCount: room.members.filter((member) => member.nominatedCandidate !== null).length,
+    decision: completed ? {
+      rankings,
+      conflicts: rankings.length ? [] : diagnoseRoundConflict(room.candidates, room.members, room.config).map(({ candidateIds, ...reason }) => {
+        void candidateIds;
+        return reason;
+      }),
+      commuteRelaxation: rankings.length ? null : suggestMinimumCommuteRelaxation(room.candidates, room.members, room.config),
+    } : null,
     members: room.members.map((member) => {
-      const { userId, privateDecisionRound, ...memberWithoutPrivateMarker } = member;
-      void userId;
       const providerIds = member.privateCandidates.map((candidate) => candidate.source.providerId || candidate.id);
-      const publicMember: PublicMember = {
-        ...memberWithoutPrivateMarker,
-        privateDiscoveryCompleted: privateDecisionRound === room.currentRound && member.privateCandidates.length === 3 && new Set(providerIds).size === 3,
+      const status: ParticipantMemberStatus = {
+        id: member.id,
+        name: member.name,
+        locationReady: member.originLocation !== null && member.originLocation !== undefined,
+        availabilitySubmitted: member.availability !== null && member.availability !== undefined,
+        constraintsReady: member.constraintsReady,
+        submittedAt: member.submittedAt,
+        refreshRequestRound: member.refreshRequestRound,
+        privateDiscoveryCompleted: member.privateDecisionRound === room.currentRound && member.privateCandidates.length === 3 && new Set(providerIds).size === 3,
       };
-      if (member.id === memberId) return publicMember;
-      const { privateCandidates, nominatedCandidate, availability, rejectionReasons, ...peer } = publicMember;
-      void privateCandidates;
-      void nominatedCandidate;
-      void availability;
-      void rejectionReasons;
-      return { ...peer, availabilitySubmitted: member.availability !== null };
+      if (member.id !== memberId) return status;
+      const { userId, privateDecisionRound, ...self } = member;
+      void userId;
+      void privateDecisionRound;
+      return { ...self, ...status };
     }),
   };
 }

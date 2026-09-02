@@ -1,5 +1,5 @@
 import type { Candidate, Choice, DecisionKind, GroupMemberPreference, RoomConfig } from "./couju.ts";
-import { DEFAULT_INTERESTS } from "./couju.ts";
+import { COMMUTE_TOLERANCE_MINUTES, DEFAULT_INTERESTS } from "./couju.ts";
 import { estimateTravelBetween, parseCommuteLimit } from "./couju.ts";
 import { feedbackWeight } from "./rejection-feedback.ts";
 
@@ -26,18 +26,55 @@ export type ConflictReason = {
 
 export type CommuteRelaxationSuggestion = { memberId: string; memberName: string; currentMinutes: number; suggestedMinutes: number; addedMinutes: number; restoredCandidateCount: number };
 
-export function suggestMinimumCommuteRelaxation(candidates: Candidate[], members: Array<{ id: string; name?: string; commuteLabel?: string; originLocation?: { lng: number; lat: number } | null }>): CommuteRelaxationSuggestion | null {
+type CommuteMember = {
+  id: string;
+  name?: string;
+  commuteLabel?: string;
+  originLocation?: { lng: number; lat: number } | null;
+  choices?: Record<string, Choice>;
+  budgetLabel?: string;
+  setting?: string;
+  extraction?: GroupMemberPreference["extraction"];
+};
+
+export function suggestMinimumCommuteRelaxation(candidates: Candidate[], members: CommuteMember[], config?: RoomConfig): CommuteRelaxationSuggestion | null {
   const suggestions = members.flatMap((member) => {
     const currentMinutes = parseCommuteLimit(member.commuteLabel ?? "不限");
     if (currentMinutes === null) return [];
-    const over = candidates.map((candidate) => estimateTravelBetween(member.originLocation ?? null, candidate.location) ?? candidate.estimatedTravelMinutes)
-      .filter((minutes): minutes is number => minutes !== null && minutes > currentMinutes)
+    const over = candidates
+      .filter((candidate) => candidateCanBeRestoredByCommute(candidate, member.id, currentMinutes, members, config))
+      .map((candidate) => estimateTravelBetween(member.originLocation ?? null, candidate.location) ?? candidate.estimatedTravelMinutes)
+      .filter((minutes): minutes is number => minutes !== null)
       .sort((a, b) => a - b);
     if (!over.length) return [];
-    const suggestedMinutes = Math.ceil(over[0]);
-    return [{ memberId: member.id, memberName: member.name || "某位成员", currentMinutes, suggestedMinutes, addedMinutes: suggestedMinutes - currentMinutes, restoredCandidateCount: over.filter((minutes) => minutes <= suggestedMinutes).length }];
+    const suggestedMinutes = Math.max(currentMinutes + 1, Math.ceil(over[0] - COMMUTE_TOLERANCE_MINUTES));
+    return [{ memberId: member.id, memberName: member.name || "某位成员", currentMinutes, suggestedMinutes, addedMinutes: suggestedMinutes - currentMinutes, restoredCandidateCount: over.filter((minutes) => minutes <= suggestedMinutes + COMMUTE_TOLERANCE_MINUTES).length }];
   });
   return suggestions.sort((a, b) => a.addedMinutes - b.addedMinutes || b.restoredCandidateCount - a.restoredCandidateCount)[0] ?? null;
+}
+
+function candidateCanBeRestoredByCommute(candidate: Candidate, affectedMemberId: string, currentMinutes: number, members: CommuteMember[], config?: RoomConfig) {
+  const affected = members.find((member) => member.id === affectedMemberId);
+  if (!affected) return false;
+  const affectedTravel = estimateTravelBetween(affected.originLocation ?? null, candidate.location) ?? candidate.estimatedTravelMinutes;
+  if (affectedTravel === null || affectedTravel <= currentMinutes + COMMUTE_TOLERANCE_MINUTES) return false;
+  if (!config || members.some((member) => member.choices === undefined)) return true;
+  if (candidate.priceValue === null) return false;
+
+  for (const member of members) {
+    if (member.choices?.[candidate.id] === "no") return false;
+    const limits = [parseBudget(member.budgetLabel), numericConstraint(member as RoundMember, "max_budget")].filter((value): value is number => value !== null);
+    if (limits.length && candidate.priceValue > Math.min(...limits)) return false;
+    const start = Math.max(toMinutes(config.startTime), timeConstraint(member as RoundMember, "arrival_after") ?? 0);
+    const end = Math.min(toMinutes(config.endTime), timeConstraint(member as RoundMember, "leave_before") ?? 24 * 60);
+    if (candidate.durationMinutes > Math.max(0, end - start)) return false;
+    if ((member.setting === "不吃辣" || hasConstraint(member as RoundMember, "no_spicy")) && candidate.features.nonSpicyAvailable === false) return false;
+    if (member.id === affectedMemberId) continue;
+    const commute = parseCommuteLimit(member.commuteLabel ?? "不限");
+    const travel = estimateTravelBetween(member.originLocation ?? null, candidate.location) ?? candidate.estimatedTravelMinutes;
+    if (commute !== null && travel !== null && travel > commute + COMMUTE_TOLERANCE_MINUTES) return false;
+  }
+  return true;
 }
 
 type RoundMember = Pick<GroupMemberPreference, "id" | "choices" | "submittedAt"> & Partial<Pick<GroupMemberPreference, "name" | "originLocation" | "budgetLabel" | "commuteLabel" | "setting" | "extraction" | "rejectionReasons">>;

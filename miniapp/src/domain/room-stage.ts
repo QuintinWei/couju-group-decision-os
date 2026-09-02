@@ -34,7 +34,7 @@ export function memberSetupProgress(room: ParticipantRoom, memberId: string): Me
 }
 
 function availabilityReady(member: ParticipantRoom["members"][number]) {
-  return Array.isArray(member.availability) || member.availabilitySubmitted === true;
+  return ("availability" in member && Array.isArray(member.availability)) || member.availabilitySubmitted;
 }
 
 function allMembersShareSchedule(room: ParticipantRoom) {

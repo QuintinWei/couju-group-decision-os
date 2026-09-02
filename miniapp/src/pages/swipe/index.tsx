@@ -10,7 +10,7 @@ import { canSubmitSharedRound, createSubmissionGate, recordChoice, submitWithRou
 import { normalizeRoomCode } from "../../domain/session.ts";
 import { getParticipantRoom, resolveRoomMembership } from "../../services/members.ts";
 import { submitSharedRound } from "../../services/rounds.ts";
-import type { Candidate, Membership, ParticipantRoom, RejectionReason } from "../../types/api.ts";
+import { isParticipantSelfMember, type Candidate, type Membership, type ParticipantRoom, type RejectionReason } from "../../types/api.ts";
 import "./index.scss";
 
 const sharedCardCount = 12;
@@ -57,7 +57,7 @@ export default function SwipePage() {
     if (!room || !membership || submitting) return;
     const candidateIds = room.candidates.map((candidate) => candidate.id);
     const member = room.members.find((item) => item.id === membership.memberId);
-    if (!member || !canSubmitSharedRound(candidateIds, nextState.choices)) {
+    if (!member || !isParticipantSelfMember(member) || !canSubmitSharedRound(candidateIds, nextState.choices)) {
       setMessage("请先完成当前 12 张共享卡的选择");
       return;
     }

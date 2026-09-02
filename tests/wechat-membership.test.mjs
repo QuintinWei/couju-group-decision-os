@@ -114,6 +114,18 @@ test("participant room DTOs redact persistent user ids from every member", () =>
 
   assert.equal(dto.members.length, 2);
   assert.ok(dto.members.every((item) => !Object.hasOwn(item, "userId")));
+  assert.equal(dto.members[0].origin, "静安寺");
+  assert.deepEqual(dto.members[1], {
+    id: "member-b",
+    name: "member-b",
+    locationReady: true,
+    availabilitySubmitted: false,
+    constraintsReady: true,
+    submittedAt: null,
+    refreshRequestRound: null,
+    privateDiscoveryCompleted: false,
+  });
+  assert.doesNotMatch(JSON.stringify(dto.members[1]), /origin|budget|commute|setting|note|extraction|choices|availability"|privateCandidates/i);
 });
 
 test("the existing WeChat migration leaves room membership uniqueness to a forward migration", async () => {

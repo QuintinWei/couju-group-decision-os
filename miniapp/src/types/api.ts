@@ -73,6 +73,64 @@ export type RejectionReason = {
   detail?: string;
 };
 
+export type ParticipantMemberStatus = {
+  id: string;
+  name: string;
+  locationReady: boolean;
+  availabilitySubmitted: boolean;
+  constraintsReady: boolean;
+  submittedAt: string | null;
+  refreshRequestRound: number | null;
+  privateDiscoveryCompleted: boolean;
+};
+
+export type ParticipantSelfMember = ParticipantMemberStatus & {
+  origin: string;
+  originLocation: { lng: number; lat: number } | null;
+  budgetLabel: string;
+  commuteLabel: string;
+  setting: string;
+  note: string;
+  extraction: unknown | null;
+  availability: Array<{ startAt: string; endAt: string }> | null;
+  choices: Record<string, Choice>;
+  rejectionReasons: Record<string, RejectionReason>;
+  privateCandidates: Candidate[];
+  nominatedCandidate: Candidate | null;
+};
+
+export function isParticipantSelfMember(member: ParticipantMemberStatus | ParticipantSelfMember): member is ParticipantSelfMember {
+  return "choices" in member;
+}
+
+export type ParticipantRanking = Candidate & {
+  groupFit: number;
+  minUtility: number;
+  meanUtility: number;
+  geoMean: number;
+  evidence: string[];
+  explanation: string;
+  memberUtilities: Array<{ memberId: string; name: string; utility: number; travelMinutes: number | null }>;
+  meanTravelMinutes: number | null;
+  onParetoFrontier: boolean;
+};
+
+export type ParticipantConflict = {
+  type: "all_rejected" | "choice_rejection" | "commute" | "budget" | "duration" | "no_spicy" | "unknown_hard_fact";
+  memberId?: string;
+  affectedCount: number;
+  message: string;
+};
+
+export type ParticipantCommuteRelaxation = {
+  memberId: string;
+  memberName: string;
+  currentMinutes: number;
+  suggestedMinutes: number;
+  addedMinutes: number;
+  restoredCandidateCount: number;
+};
+
 export type ParticipantRoom = {
   code: string;
   config: {
@@ -96,28 +154,13 @@ export type ParticipantRoom = {
   };
   currentRound: number;
   roundHistory: Array<{ round: number }>;
-  members: Array<{
-    id: string;
-    name: string;
-    origin: string;
-    originLocation: { lng: number; lat: number } | null;
-    budgetLabel: string;
-    commuteLabel: string;
-    constraintsReady: boolean;
-    setting: string;
-    note: string;
-    extraction: unknown | null;
-    submittedAt: string | null;
-    availability?: Array<{ startAt: string; endAt: string }> | null;
-    availabilitySubmitted?: boolean;
-    choices: Record<string, Choice>;
-    rejectionReasons?: Record<string, RejectionReason>;
-    privateCandidates?: Candidate[];
-    nominatedCandidate?: Candidate | null;
-    refreshRequestRound: number | null;
-    privateDiscoveryCompleted: boolean;
-  }>;
+  members: Array<ParticipantSelfMember | ParticipantMemberStatus>;
   nominationCount: number;
+  decision: {
+    rankings: ParticipantRanking[];
+    conflicts: ParticipantConflict[];
+    commuteRelaxation: ParticipantCommuteRelaxation | null;
+  } | null;
   createdAt: string;
   updatedAt: string;
 };

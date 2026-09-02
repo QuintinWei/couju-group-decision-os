@@ -68,6 +68,28 @@ function member(id, name, choices, overrides = {}) {
   };
 }
 
+function ranking(candidateValue = candidates[0]) {
+  return {
+    ...candidateValue,
+    groupFit: 91,
+    minUtility: 94,
+    meanUtility: 94,
+    geoMean: 94,
+    evidence: ["2/2 位成员明确喜欢", "最低成员满意度 94", "Nash 群体效用 94"],
+    explanation: "先保护每个人的底线，再比较整体福利。",
+    memberUtilities: [
+      { memberId: "creator", name: "小安", utility: 94, travelMinutes: null },
+      { memberId: "member-b", name: "小北", utility: 94, travelMinutes: null },
+    ],
+    meanTravelMinutes: 20,
+    onParetoFrontier: true,
+  };
+}
+
+function decision(rankings = [ranking()], conflicts = [], commuteRelaxation = null) {
+  return { rankings, conflicts, commuteRelaxation };
+}
+
 function room(memberOverrides = [], overrides = {}) {
   const liked = Object.fromEntries(candidates.map((item) => [item.id, item.id === "candidate-1" ? "like" : "okay"]));
   const members = [
@@ -94,6 +116,7 @@ function room(memberOverrides = [], overrides = {}) {
     roundHistory: [],
     members,
     nominationCount: 0,
+    decision: decision(),
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-01T10:00:00.000Z",
     ...overrides,
@@ -111,12 +134,30 @@ test("the participant DTO produces one FairMix recommendation with real member s
   assert.equal(resultAction(room(), "creator"), "result");
 });
 
+test("result and progress consumers work with a status-only peer and never need peer inputs", () => {
+  const safeRoom = room();
+  safeRoom.members[1] = {
+    id: "member-b",
+    name: "小北",
+    locationReady: true,
+    availabilitySubmitted: true,
+    constraintsReady: true,
+    submittedAt: "2026-09-01T10:00:00.000Z",
+    refreshRequestRound: null,
+    privateDiscoveryCompleted: false,
+  };
+
+  assert.equal(participantRankings(safeRoom)[0].name, "第一选择");
+  assert.equal(resultAction(safeRoom, "creator"), "result");
+  assert.doesNotMatch(JSON.stringify(safeRoom.members[1]), /choices|origin|budget|commute|note|extraction|privateCandidates/i);
+});
+
 test("result action derives private discovery and creator advance only from public participant fields", () => {
   const allNo = Object.fromEntries(candidates.map((item) => [item.id, "no"]));
   const conflicted = room([
     { choices: allNo },
     { choices: Object.fromEntries(candidates.map((item) => [item.id, "okay"])) },
-  ], { canAdvance: true, canPrivateDiscover: ["not-a-member"] });
+  ], { decision: decision([]), canAdvance: true, canPrivateDiscover: ["not-a-member"] });
 
   assert.equal(resultAction(conflicted, "creator"), "private-discovery");
   assert.equal(resultAction(conflicted, "member-b"), "private-discovery");
@@ -142,7 +183,7 @@ test("partial private discovery remains retryable after the refresh marker was s
   const partial = room([
     { choices: allNo, refreshRequestRound: 1, privateCandidates: [] },
     { choices: Object.fromEntries(candidates.map((item) => [item.id, "okay"])), refreshRequestRound: 1 },
-  ]);
+  ], { decision: decision([]) });
   assert.equal(canOpenPrivateDiscovery(partial, "creator"), true);
   assert.equal(resultAction(partial, "creator"), "private-discovery");
   partial.members[0].privateCandidates = candidates.slice(0, 3);
@@ -158,7 +199,7 @@ test("an individually all-rejected member can open server-authorized discovery w
   const individual = room([
     { choices: allNo },
     { choices: {}, submittedAt: null },
-  ]);
+  ], { decision: null });
   assert.equal(canOpenPrivateDiscovery(individual, "creator"), true);
   assert.equal(resultAction(individual, "creator"), "private-discovery");
 
@@ -167,14 +208,17 @@ test("an individually all-rejected member can open server-authorized discovery w
 });
 
 test("an incomplete round waits and a completed round exposes deterministic named conflict reasons", () => {
-  const incomplete = room([{ submittedAt: null, choices: {} }]);
+  const incomplete = room([{ submittedAt: null, choices: {} }], { decision: null });
   assert.equal(isCompletedParticipantRound(incomplete), false);
   assert.equal(resultAction(incomplete, "creator"), "wait");
 
   const split = room([
     { choices: Object.fromEntries(candidates.map((item, index) => [item.id, index < 6 ? "no" : "okay"])) },
     { choices: Object.fromEntries(candidates.map((item, index) => [item.id, index < 6 ? "okay" : "no"])) },
-  ]);
+  ], { decision: decision([], [
+    { type: "choice_rejection", memberId: "creator", affectedCount: 6, message: "小安 的选择排除了 6/12 张候选" },
+    { type: "choice_rejection", memberId: "member-b", affectedCount: 6, message: "小北 的选择排除了 6/12 张候选" },
+  ]) });
   const conflict = diagnoseParticipantConflict(split);
   assert.match(conflict[0].message, /小安/);
   assert.match(conflict[1].message, /小北/);
@@ -183,7 +227,9 @@ test("an incomplete round waits and a completed round exposes deterministic name
 
 test("no-result has an immediate deterministic learned summary when the insight service is unavailable", () => {
   const allNo = Object.fromEntries(candidates.map((item) => [item.id, "no"]));
-  const conflicted = room([{ choices: allNo }, {}]);
+  const conflicted = room([{ choices: allNo }, {}], { decision: decision([], [
+    { type: "all_rejected", memberId: "creator", affectedCount: 12, message: "小安 拒绝了本轮全部候选" },
+  ]) });
   const insight = deterministicRoundInsight(conflicted);
   assert.equal(insight.mode, "deterministic");
   assert.match(insight.learned, /展览|陶艺|尚未形成/);
@@ -195,7 +241,13 @@ test("deterministic diagnosis includes duration and dietary hard limits from par
   const constrained = room([
     { setting: "不吃辣" },
     {},
-  ], { candidates: candidates.map((item) => ({ ...item, durationMinutes: 240, features: { ...item.features, nonSpicyAvailable: false } })) });
+  ], {
+    candidates: candidates.map((item) => ({ ...item, durationMinutes: 240, features: { ...item.features, nonSpicyAvailable: false } })),
+    decision: decision([], [
+      { type: "duration", memberId: "creator", affectedCount: 12, message: "小安 的可用时间影响了 12/12 张候选" },
+      { type: "no_spicy", memberId: "creator", affectedCount: 12, message: "小安 的不吃辣约束影响了 12/12 张候选" },
+    ]),
+  });
   const conflict = diagnoseParticipantConflict(constrained);
   assert.ok(conflict.some((item) => item.type === "duration" && /可用时间/.test(item.message)));
   assert.ok(conflict.some((item) => item.type === "no_spicy" && /不吃辣/.test(item.message)));
@@ -206,7 +258,7 @@ test("the smallest commute relaxation belongs only to the affected member", () =
   const commuteRoom = room([
     { commuteLabel: "≤ 30 分钟" },
     { commuteLabel: "不限" },
-  ], { candidates: commuteCandidates, currentRound: 3 });
+  ], { candidates: commuteCandidates, currentRound: 3, decision: decision([], [], { memberId: "creator", memberName: "小安", currentMinutes: 30, suggestedMinutes: 31, addedMinutes: 1, restoredCandidateCount: 1 }) });
   const suggestion = suggestParticipantCommuteRelaxation(commuteRoom);
   assert.deepEqual(suggestion, {
     memberId: "creator",
@@ -225,7 +277,7 @@ test("optional commute negotiation never hides a server-permitted creator advanc
   const recoverable = room([
     { commuteLabel: "≤ 30 分钟", refreshRequestRound: 1, privateCandidates: commuteCandidates.slice(0, 3), privateDiscoveryCompleted: true },
     { commuteLabel: "不限", refreshRequestRound: 1, privateCandidates: commuteCandidates.slice(0, 3), privateDiscoveryCompleted: true },
-  ], { candidates: commuteCandidates });
+  ], { candidates: commuteCandidates, decision: decision([], [], { memberId: "creator", memberName: "小安", currentMinutes: 30, suggestedMinutes: 31, addedMinutes: 1, restoredCandidateCount: 1 }) });
   assert.ok(suggestParticipantCommuteRelaxation(recoverable));
   assert.equal(resultAction(recoverable, "creator"), "advance");
 });
@@ -235,7 +287,7 @@ test("optional commute negotiation never replaces the actual pending recovery me
   const pending = room([
     { commuteLabel: "≤ 30 分钟", refreshRequestRound: 1, privateCandidates: commuteCandidates.slice(0, 3), privateDiscoveryCompleted: true },
     { commuteLabel: "不限", refreshRequestRound: null },
-  ], { candidates: commuteCandidates });
+  ], { candidates: commuteCandidates, decision: decision([], [], { memberId: "creator", memberName: "小安", currentMinutes: 30, suggestedMinutes: 31, addedMinutes: 1, restoredCandidateCount: 1 }) });
   assert.ok(suggestParticipantCommuteRelaxation(pending));
   assert.equal(resultWaitMessage(pending), "等待小北完成本轮恢复操作");
   pending.currentRound = 3;
@@ -247,7 +299,7 @@ test("commute adjustment is not offered when relaxing it cannot restore a vetoed
   const vetoedRoom = room([
     { choices: allNo, commuteLabel: "≤ 30 分钟" },
     { choices: Object.fromEntries(candidates.map((item) => [item.id, "okay"])) },
-  ], { candidates: candidates.map((item) => ({ ...item, estimatedTravelMinutes: 60 })) });
+  ], { candidates: candidates.map((item) => ({ ...item, estimatedTravelMinutes: 60 })), decision: decision([]) });
   assert.equal(suggestParticipantCommuteRelaxation(vetoedRoom), null);
   assert.equal(resultAction(vetoedRoom, "creator"), "private-discovery");
 });

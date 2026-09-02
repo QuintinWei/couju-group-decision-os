@@ -109,7 +109,7 @@ function nextAction(page: RoomPage, room: ParticipantRoom, memberId: string) {
   const query = `room=${room.code}`;
   if (page === "availability") {
     const current = room.members.find((member) => member.id === memberId);
-    const editing = Array.isArray(current?.availability);
+    const editing = Boolean(current && "availability" in current && Array.isArray(current.availability));
     return { label: editing ? "调整空闲时间" : "填写空闲时间", caption: editing ? "目前还没有所有人都能参加的共同时间。" : "先圈出你能参加的时间。", url: `/pages/availability/index?${query}`, disabled: false };
   }
   if (page === "constraints") {

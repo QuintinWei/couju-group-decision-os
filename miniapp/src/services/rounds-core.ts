@@ -1,4 +1,4 @@
-import type { Choice, Membership, ParticipantRoom, RejectionReason } from "../types/api.ts";
+import type { Choice, Membership, ParticipantRoom, ParticipantSelfMember, RejectionReason } from "../types/api.ts";
 import type { ParticipantRanking } from "../domain/result-action.ts";
 import type { ApiRequestOptions } from "./request-core.ts";
 
@@ -8,7 +8,7 @@ type SubmissionRoom = Pick<ParticipantRoom, "currentRound"> & {
   candidates: Array<Pick<ParticipantRoom["candidates"][number], "id">>;
 };
 
-type SubmissionMember = Pick<ParticipantRoom["members"][number], "budgetLabel" | "commuteLabel" | "setting" | "note" | "extraction">;
+type SubmissionMember = Pick<ParticipantSelfMember, "budgetLabel" | "commuteLabel" | "setting" | "note" | "extraction">;
 
 export function createRoundsService({ request }: { request: ApiRequest }) {
   async function submitSharedRound(
@@ -86,7 +86,9 @@ export function createRoundsService({ request }: { request: ApiRequest }) {
       data: {
         city: room.config.city,
         kind: room.config.kind,
-        members: room.members.map((member) => ({ budget: member.budgetLabel, commute: member.commuteLabel })),
+        // The participant DTO deliberately redacts peer constraints. Explanation
+        // only needs the server-computed scores and an anonymous member count.
+        members: room.members.map(() => ({ budget: "不限", commute: "不限" })),
         candidates: rankings.slice(0, 3).map((candidate) => ({
           name: candidate.name,
           groupFit: candidate.groupFit,

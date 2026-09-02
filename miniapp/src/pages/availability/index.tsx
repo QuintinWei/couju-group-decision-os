@@ -8,7 +8,7 @@ import PrimaryButton from "../../components/PrimaryButton";
 import { buildAvailabilityIntervals, enumerateDates, validateAvailabilityDraft, type AvailabilityDraftRange } from "../../domain/availability.ts";
 import { normalizeRoomCode } from "../../domain/session.ts";
 import { getParticipantRoom, resolveRoomMembership, submitAvailability } from "../../services/members.ts";
-import type { Membership, ParticipantRoom } from "../../types/api.ts";
+import { isParticipantSelfMember, type Membership, type ParticipantRoom } from "../../types/api.ts";
 import "./index.scss";
 
 export default function AvailabilityPage() {
@@ -28,7 +28,7 @@ export default function AvailabilityPage() {
       const current = latestRoom.members.find((item) => item.id === identity.memberId);
       setMembership(identity);
       setRoom(latestRoom);
-      setDraft(current?.availability?.length ? current.availability.map(fromServerInterval) : defaultRanges(latestRoom));
+      setDraft(current && isParticipantSelfMember(current) && current.availability?.length ? current.availability.map(fromServerInterval) : defaultRanges(latestRoom));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "空闲时间加载失败");
     } finally { setLoading(false); }

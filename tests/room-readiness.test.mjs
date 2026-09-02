@@ -23,3 +23,10 @@ test("a missing member location never permits group selection", () => {
   assert.equal(readiness.locationsComplete, false);
   assert.equal(readiness.canStartSelection, false);
 });
+
+test("participant polling can derive readiness from redacted peer status flags", () => {
+  assert.deepEqual(getRoomReadiness({ targetCount: 2, members: [
+    { locationReady: true, availabilitySubmitted: true },
+    { locationReady: true, availabilitySubmitted: true },
+  ] }), { groupComplete: true, locationsComplete: true, availabilityComplete: true, canStartSelection: true });
+});

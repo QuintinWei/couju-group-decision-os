@@ -8,7 +8,7 @@ import PrimaryButton from "../../components/PrimaryButton";
 import { constraintErrorState, type ConstraintErrorState } from "../../domain/constraints.ts";
 import { normalizeRoomCode } from "../../domain/session.ts";
 import { getParticipantRoom, resolveRoomMembership, submitConstraints } from "../../services/members.ts";
-import type { Membership, ParticipantRoom } from "../../types/api.ts";
+import { isParticipantSelfMember, type Membership, type ParticipantRoom } from "../../types/api.ts";
 import "./index.scss";
 
 const commutes = ["≤ 30 分钟", "≤ 60 分钟", "≤ 90 分钟", "不限"];
@@ -31,7 +31,7 @@ export default function ConstraintsPage() {
       const latestRoom = await getParticipantRoom(identity);
       const current = latestRoom.members.find((item) => item.id === identity.memberId);
       setMembership(identity); setRoom(latestRoom);
-      if (current?.constraintsReady) {
+      if (current?.constraintsReady && isParticipantSelfMember(current)) {
         setBudgetLabel(current.budgetLabel);
         setCommuteLabel(current.commuteLabel);
         setSetting(current.setting);

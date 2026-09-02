@@ -8,7 +8,7 @@
 - Added completed-round no-result handling: an immediate deterministic “AI learned” summary, optional persisted round insight, and a separate deterministic conflict diagnosis. Incomplete rounds remain on a privacy-safe wait screen describing only the pending action.
 - Added the smallest deterministic commute relaxation only for the affected member. It is optional in rounds 1–2, requires confirmation, and cannot mask a real pending discovery/nomination action or the creator's advance action.
 - Added creator-only round advance derived from the actual public gate. The action disables while submitting, reloads the room, and redirects only after the server confirms that the round increased.
-- Added native sharing that emits only `/pages/home/index?room=CODE`; no token is included. H5 code was not changed.
+- Added native sharing that emits only `/pages/home/index?room=CODE`; no token is included. The H5 layout remains unchanged.
 - Extended request timeout support so AI insight/explanation requests can use endpoint-appropriate limits while ordinary miniapp requests retain their existing default.
 
 ## TDD and review
@@ -20,14 +20,17 @@
 - The final review added four server/client boundary findings. `/api/insights` now returns 409 before producing learned/conflict content until the authenticated room has exactly 12 valid shared cards and every expected member has submitted a complete choice map. Advance no longer treats a refresh request as completed recovery: migration `0009_add_private_decision_round.sql` records an explicit nominate/skip decision, a valid unique three-card batch is also required, and the same gate is rechecked at the storage boundary after candidate generation.
 - The native discovery page now lets the rounds API authorize an individual all-rejected request even while peers are incomplete, and displays the server denial if eligibility changes. The public participant DTO exposes only a privacy-safe completion boolean; the durable decision round and peer cards remain hidden.
 - Commute recovery now proposes the smallest integer limit after applying the existing 15-minute tolerance (`30` with travel `46` becomes `31`). Rounds 1–2 retain the real pending-recovery wording because this suggestion is optional; only the terminal round can wait on that member's confirmation.
+- Final privacy review replaced the broad participant-member spread with an explicit least-privilege DTO. A member receives their own complete setup/choice/private-discovery state, while every peer is reduced to name plus location/availability/constraint/submission/refresh/private-recovery completion flags. Peer choices, rejection reasons, note/extraction, origin/location, budget, commute, scene preference, availability intervals, nominations, private cards, durable decision markers, user IDs, and private round-history fields are absent.
+- Completed-round rankings, conflict summaries, and commute recovery are now computed once at the authenticated server boundary. Before that boundary `decision` is `null`; after it, clients receive only the published ranking/diagnosis, with individual travel estimates removed. H5 and the native mini-program consume this server-owned snapshot, so polling and result rendering no longer require peer inputs. H5 keeps the existing layout and interaction flow, while peer origin/travel details are no longer rendered.
+- Added regressions for incomplete-round redaction, completed-round peer redaction, current and historical private-card isolation, status-only peer readiness/result consumers, and self-data retention. The server commute helper now also observes the same 15-minute tolerance used by ranking.
 
 ## Verification
 
-- Focused Task 9, server-boundary, persistence, membership, and existing API suites: 78 passing, 0 failing.
+- Focused Task 9 privacy, result, readiness, membership, round-boundary, and existing API suites: 68 passing, 0 failing.
 - `npm --workspace miniapp run typecheck` — passing.
 - `npm run miniapp:build` — passing.
-- `npm test` — 185 passing, 0 failing.
-- Changed-file ESLint check and `git diff --check` — clean.
+- `npm test` — production H5 build plus 194 tests passing, 0 failing.
+- `git diff --check` — clean.
 
 ## Notes
 

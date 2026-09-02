@@ -174,7 +174,7 @@ test("conflict diagnosis ranks partial member impacts when members jointly elimi
 });
 
 test("commute negotiation proposes the smallest real relaxation from candidate travel facts", () => {
-  const pool = getDemoCandidates("上海", "activity").slice(0, 3).map((item, index) => ({ ...item, estimatedTravelMinutes: [38, 44, 55][index], location: null }));
+  const pool = getDemoCandidates("上海", "activity").slice(0, 3).map((item, index) => ({ ...item, estimatedTravelMinutes: [46, 55, 70][index], location: null }));
   const suggestion = suggestMinimumCommuteRelaxation(pool, [{ id: "b", name: "小北", commuteLabel: "≤ 30 分钟", originLocation: null }]);
-  assert.deepEqual(suggestion, { memberId: "b", memberName: "小北", currentMinutes: 30, suggestedMinutes: 38, addedMinutes: 8, restoredCandidateCount: 1 });
+  assert.deepEqual(suggestion, { memberId: "b", memberName: "小北", currentMinutes: 30, suggestedMinutes: 31, addedMinutes: 1, restoredCandidateCount: 1 });
 });
