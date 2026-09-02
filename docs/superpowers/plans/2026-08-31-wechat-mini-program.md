@@ -122,7 +122,7 @@ test("automatic nickname is stable and contains no openid", () => {
 
 - [ ] **Step 2: Run the tests and verify failure**
 
-Run: `node --experimental-strip-types --test tests/wechat-auth.test.mjs`  
+Run: `node --experimental-strip-types --test tests/wechat-auth.test.mjs`
 Expected: FAIL because `lib/wechat-auth.ts` does not exist.
 
 - [ ] **Step 3: Add the minimal pure implementation**
@@ -158,7 +158,7 @@ Keep the encoder, timing-safe signature comparison, nickname hash and payload va
 
 - [ ] **Step 4: Run the focused tests**
 
-Run: `node --experimental-strip-types --test tests/wechat-auth.test.mjs`  
+Run: `node --experimental-strip-types --test tests/wechat-auth.test.mjs`
 Expected: 3 tests PASS.
 
 - [ ] **Step 5: Commit**
@@ -219,7 +219,7 @@ test("wechat users are persisted without exposing secrets", async () => {
 
 - [ ] **Step 2: Verify the contract test fails**
 
-Run: `node --experimental-strip-types --test tests/wechat-user-api.test.mjs`  
+Run: `node --experimental-strip-types --test tests/wechat-user-api.test.mjs`
 Expected: FAIL on the missing migration or route.
 
 - [ ] **Step 3: Add schema and exact migration**
@@ -268,7 +268,7 @@ WECHAT_APP_SECRET=
 WECHAT_TOKEN_SECRET=
 ```
 
-Run: `node --experimental-strip-types --test tests/wechat-auth.test.mjs tests/wechat-user-api.test.mjs`  
+Run: `node --experimental-strip-types --test tests/wechat-auth.test.mjs tests/wechat-user-api.test.mjs`
 Expected: all tests PASS.
 
 - [ ] **Step 7: Commit**
@@ -318,7 +318,7 @@ test("miniapp membership binds users while H5 remains anonymous-compatible", asy
 
 - [ ] **Step 2: Verify failure**
 
-Run: `node --experimental-strip-types --test tests/wechat-membership.test.mjs`  
+Run: `node --experimental-strip-types --test tests/wechat-membership.test.mjs`
 Expected: FAIL because user linkage does not exist.
 
 - [ ] **Step 3: Add optional user linkage to storage**
@@ -342,10 +342,10 @@ Add `userId: string | null` to `StoredMember` and `MemberRow`. Update member sel
 
 - [ ] **Step 5: Run focused and full server tests**
 
-Run: `node --experimental-strip-types --test tests/wechat-membership.test.mjs tests/rendered-html.test.mjs tests/room-readiness.test.mjs`  
+Run: `node --experimental-strip-types --test tests/wechat-membership.test.mjs tests/rendered-html.test.mjs tests/room-readiness.test.mjs`
 Expected: all tests PASS.
 
-Run: `npm test`  
+Run: `npm test`
 Expected: existing 112 tests plus new tests PASS.
 
 - [ ] **Step 6: Commit**
@@ -403,7 +403,7 @@ test("miniapp is a native Taro workspace with the correct AppID", async () => {
 
 - [ ] **Step 2: Verify failure**
 
-Run: `node --experimental-strip-types --test tests/miniapp-foundation.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-foundation.test.mjs`
 Expected: FAIL because `miniapp` does not exist.
 
 - [ ] **Step 3: Add npm workspace and pinned dependencies**
@@ -432,13 +432,13 @@ Define CSS variables for `--ink`, `--purple`, `--blue`, `--orange`, `--green`, `
 
 - [ ] **Step 6: Install, test and build**
 
-Run: `npm install`  
+Run: `npm install`
 Expected: lockfile updates without dependency resolution errors.
 
-Run: `node --experimental-strip-types --test tests/miniapp-foundation.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-foundation.test.mjs`
 Expected: PASS.
 
-Run: `npm run miniapp:build`  
+Run: `npm run miniapp:build`
 Expected: Taro produces `miniapp/dist/app.json` and `miniapp/dist/pages/home/index.js`.
 
 - [ ] **Step 7: Commit**
@@ -489,7 +489,7 @@ test("membership storage is isolated by room", () => {
 
 - [ ] **Step 2: Verify failure**
 
-Run: `node --experimental-strip-types --test tests/miniapp-session.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-session.test.mjs`
 Expected: FAIL because the domain file is missing.
 
 - [ ] **Step 3: Define DTOs and pure session helpers**
@@ -512,10 +512,10 @@ On app launch:
 
 - [ ] **Step 6: Test and build**
 
-Run: `node --experimental-strip-types --test tests/miniapp-session.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-session.test.mjs`
 Expected: PASS.
 
-Run: `npm run miniapp:build`  
+Run: `npm run miniapp:build`
 Expected: PASS with no missing Taro imports.
 
 - [ ] **Step 7: Commit**
@@ -568,7 +568,7 @@ test("creation requires origin, dates, periods, duration and people", () => {
 
 - [ ] **Step 2: Verify failure**
 
-Run: `node --experimental-strip-types --test tests/miniapp-create-room.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-create-room.test.mjs`
 Expected: FAIL because the domain file is missing.
 
 - [ ] **Step 3: Build the home page**
@@ -593,10 +593,10 @@ Join asks only for room code and origin. Location is requested only after tappin
 
 - [ ] **Step 6: Test and build**
 
-Run: `node --experimental-strip-types --test tests/miniapp-create-room.test.mjs tests/miniapp-session.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-create-room.test.mjs tests/miniapp-session.test.mjs`
 Expected: PASS.
 
-Run: `npm run miniapp:build`  
+Run: `npm run miniapp:build`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -653,7 +653,7 @@ test("member completes time before constraints", () => {
 
 - [ ] **Step 2: Verify failure**
 
-Run: `node --experimental-strip-types --test tests/miniapp-room-stage.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-room-stage.test.mjs`
 Expected: FAIL because room stage logic is missing.
 
 - [ ] **Step 3: Build room polling and progress UI**
@@ -670,10 +670,10 @@ Render budget, commute 30/60/90/unlimited and scene preference. Submitting const
 
 - [ ] **Step 6: Test and build**
 
-Run: `node --experimental-strip-types --test tests/miniapp-room-stage.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-room-stage.test.mjs`
 Expected: PASS.
 
-Run: `npm run miniapp:build`  
+Run: `npm run miniapp:build`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -728,7 +728,7 @@ test("changing rejection clears its old reason", () => {
 
 - [ ] **Step 2: Verify failure**
 
-Run: `node --experimental-strip-types --test tests/miniapp-swipe.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-swipe.test.mjs`
 Expected: FAIL because swipe domain is missing.
 
 - [ ] **Step 3: Build candidate card and controls**
@@ -745,10 +745,10 @@ After card 12, POST all 12 choices with expectedRound, stored constraints, rejec
 
 - [ ] **Step 6: Test and build**
 
-Run: `node --experimental-strip-types --test tests/miniapp-swipe.test.mjs tests/member-submission.test.mjs tests/rejection-feedback.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-swipe.test.mjs tests/member-submission.test.mjs tests/rejection-feedback.test.mjs`
 Expected: PASS.
 
-Run: `npm run miniapp:build`  
+Run: `npm run miniapp:build`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -798,7 +798,7 @@ test("only creator sees advance when every recovery action is complete", () => {
 
 - [ ] **Step 2: Verify failure**
 
-Run: `node --experimental-strip-types --test tests/miniapp-result.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-result.test.mjs`
 Expected: FAIL because result action logic is missing.
 
 - [ ] **Step 3: Build three-card private discovery**
@@ -819,10 +819,10 @@ Room and result pages implement `useShareAppMessage` with path `pages/home/index
 
 - [ ] **Step 6: Test and build**
 
-Run: `node --experimental-strip-types --test tests/miniapp-result.test.mjs tests/private-discovery-flow.test.mjs tests/round-insight.test.mjs tests/rounds-api.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-result.test.mjs tests/private-discovery-flow.test.mjs tests/round-insight.test.mjs tests/rounds-api.test.mjs`
 Expected: PASS.
 
-Run: `npm run miniapp:build`  
+Run: `npm run miniapp:build`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -874,7 +874,7 @@ test("miniapp release contract keeps secrets out and documents real setup", asyn
 
 - [ ] **Step 2: Verify failure**
 
-Run: `node --experimental-strip-types --test tests/miniapp-release-contract.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-release-contract.test.mjs`
 Expected: FAIL because the nickname component or built output is absent.
 
 - [ ] **Step 3: Add optional nickname component**
@@ -899,16 +899,16 @@ Document:
 
 - [ ] **Step 6: Run complete verification**
 
-Run: `npm run miniapp:build`  
+Run: `npm run miniapp:build`
 Expected: PASS and `miniapp/dist/app.json` exists.
 
-Run: `node --experimental-strip-types --test tests/miniapp-release-contract.test.mjs`  
+Run: `node --experimental-strip-types --test tests/miniapp-release-contract.test.mjs`
 Expected: PASS.
 
-Run: `npm test`  
+Run: `npm test`
 Expected: all existing and new tests PASS.
 
-Run: `git diff --check`  
+Run: `git diff --check`
 Expected: no output.
 
 - [ ] **Step 7: Manual developer-tools acceptance**

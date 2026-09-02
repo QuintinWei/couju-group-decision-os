@@ -1,7 +1,7 @@
 # 凑局微信小程序一期设计说明
 
-日期：2026-08-31  
-分支：`feat/wechat-mini-program`  
+日期：2026-08-31
+分支：`feat/wechat-mini-program`
 AppID：`wx7162630074a237b6`
 
 ## 1. 目标
